@@ -77,7 +77,7 @@ impl Core {
         let get_info: RetroGetSystemInfoFn = unsafe { get_symbol!(self.handle, "retro_get_system_info", RetroGetSystemInfoFn) };
         let mut info = retro_system_info::default();
         unsafe { get_info(&mut info) };
-        eprintln!("Core: {}", CStr::from_ptr(info.library_name).to_string_lossy());
+        eprintln!("Core: {}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() });
 
         let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
         unsafe { set_env(Some(dummy_environment_cb)) };
