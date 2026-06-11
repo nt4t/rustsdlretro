@@ -44,7 +44,7 @@ unsafe fn get_symbol_ptr(handle: *mut c_void, name: &str) -> *mut c_void {
     if sym.is_null() {
         let err_str = dlerror();
         let msg = CStr::from_ptr(err_str).to_string_lossy().into_owned();
-        panic!("Core missing symbol {}", name, msg);
+        panic!("Core missing symbol {}: {}", name, msg);
     }
     sym
 }
