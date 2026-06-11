@@ -107,22 +107,23 @@ impl Core {
 
     pub fn load_game(&mut self, path: &Path) -> Result<(), CoreError> {
         let load: RetroLoadGameFn = unsafe { get_symbol!(self.handle, "retro_load_game", RetroLoadGameFn) };
+        let rom_data = std::fs::read(path).map_err(|e| {
+            CoreError { message: format!("Failed to read ROM: {}", e) }
+        })?;
         let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
             CoreError { message: "Path contains null bytes".into() }
         })?;
         let mut game_info = retro_game_info {
             path: c_path.as_ptr(),
-            data: ptr::null(),
-            size: 0,
+            data: rom_data.as_ptr() as *const c_void,
+            size: rom_data.len(),
             meta: ptr::null(),
         };
-        eprintln!("  ROM path: {:?}", c_path);
-        eprintln!("  game_info.path: {:?}, size: {}", game_info.path, game_info.size);
         let success = unsafe { load(&mut game_info) };
-        eprintln!("  load returned: {}", success);
         if !success {
             return Err(CoreError { message: "retro_load_game returned false".into() });
         }
+        std::mem::forget(rom_data);
         Ok(())
     }
 
