@@ -115,7 +115,10 @@ impl Core {
             size: 0,
             meta: ptr::null(),
         };
+        eprintln!("  ROM path: {:?}", c_path);
+        eprintln!("  game_info.path: {:?}, size: {}", game_info.path, game_info.size);
         let success = unsafe { load(&mut game_info) };
+        eprintln!("  load returned: {}", success);
         if !success {
             return Err(CoreError { message: "retro_load_game returned false".into() });
         }
