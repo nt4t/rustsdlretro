@@ -78,7 +78,6 @@ impl Core {
         let mut info = retro_system_info::default();
         unsafe { get_info(&mut info) };
         eprintln!("Core: {}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() });
-        eprintln!("  need_fullpath: {}", info.need_fullpath);
 
         let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
         unsafe { set_env(Some(dummy_environment_cb)) };
