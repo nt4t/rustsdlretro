@@ -31,7 +31,7 @@ pub struct CoreError {
 }
 
 impl std::fmt::Display for CoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<\ _\>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "CoreError: {}", self.message)
     }
 }
@@ -44,16 +44,15 @@ unsafe fn get_symbol_ptr(handle: *mut c_void, name: &str) -> *mut c_void {
     if sym.is_null() {
         let err_str = dlerror();
         let msg = CStr::from_ptr(err_str).to_string_lossy().into_owned();
-        panic!("Core missing symbol \ -encodedCommand  ${}", name, msg);
+        panic!("Core missing symbol {}", name, msg);
     }
     sym
 }
 
 macro_rules! get_symbol {
-macro_rules! get_symbol {
-    (, , ) => {{
-        let ptr = unsafe { get_symbol_ptr(, ) };
-        unsafe { std::mem::transmute::<*mut c_void, >(ptr) }
+    ($handle:expr, $name:expr, $ty:ty) => {{
+        let ptr = unsafe { get_symbol_ptr($handle, $name) };
+        unsafe { std::mem::transmute::<*mut c_void, $ty>(ptr) }
     }};
 }
 extern "C" fn dummy_environment_cb(_key: u32, _data: *mut c_void) -> bool {
