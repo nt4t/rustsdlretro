@@ -1,0 +1,1 @@
+/home/can/src/rustsdlretro/target/release/sdlretro-frontend: /home/can/src/rustsdlretro/libretro.h /home/can/src/rustsdlretro/sdlretro-core/build.rs /home/can/src/rustsdlretro/sdlretro-core/src/lib.rs /home/can/src/rustsdlretro/sdlretro-frontend/src/main.rs /home/can/src/rustsdlretro/target/release/build/sdlretro-core-ac916d0275fbe2fb/out/bindings.rs
