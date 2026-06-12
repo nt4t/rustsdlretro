@@ -130,12 +130,12 @@ impl FbdevVideo {
         let mut fix: fb_fix_screeninfo = unsafe { std::mem::zeroed() };
         let mut var: fb_var_screeninfo = unsafe { std::mem::zeroed() };
 
-        if unsafe { libc::ioctl(fd, FBIOGET_FSCREENINFO, &mut fix) } < 0 {
+        if unsafe { libc::ioctl(fd, FBIOGET_FSCREENINFO as _, &mut fix) } < 0 {
             unsafe { libc::close(fd) };
             return Err(format!("FBIOGET_FSCREENINFO failed: {}", std::io::Error::last_os_error()));
         }
 
-       if unsafe { libc::ioctl(fd, FBIOGET_VSCREENINFO, &mut var) } < 0 {
+      if unsafe { libc::ioctl(fd, FBIOGET_VSCREENINFO as _, &mut var) } < 0 {
             unsafe { libc::close(fd) };
             return Err(format!("FBIOGET_VSCREENINFO failed: {}", std::io::Error::last_os_error()));
         }
