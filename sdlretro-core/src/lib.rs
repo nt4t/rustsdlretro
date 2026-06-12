@@ -75,7 +75,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         if !log_info.is_null() {
             unsafe {
                 let fn_ptr: retro_log_printf_t = std::mem::transmute(log_callback as *const c_void);
-                (*log_info).log = Some(fn_ptr);
+                (*log_info).log = fn_ptr;
                 eprintln!("Log interface registered");
             }
         }
