@@ -84,7 +84,22 @@ fn main() {
     unsafe { MAIN_VIDEO = Some(video); }
     unsafe { MAIN_INPUT = Some(input); }
 
-    // Get AV info to set core format and throttle
+    // Set input callbacks before loading ROM
+    core.set_callbacks(
+        None,
+        Some(input_poll_cb),
+        Some(input_state_cb),
+    );
+    eprintln!("Input callbacks registered");
+
+    eprintln!("Loading ROM: {}", rom_path);
+    if core.load_game(Path::new(rom_path)).is_err() {
+        eprintln!("Failed to load game");
+        std::process::exit(1);
+    }
+    eprintln!("Load OK");
+
+    // Get AV info after ROM loaded (core may not have valid AV info before load)
     let av_info = core.get_system_av_info();
     let geometry = &av_info.geometry;
     let timing = &av_info.timing;
@@ -100,20 +115,9 @@ fn main() {
         }
     }
 
-    // Set all callbacks at once
-    core.set_callbacks(
-        Some(video_refresh_cb),
-        Some(input_poll_cb),
-        Some(input_state_cb),
-    );
-    eprintln!("Callbacks registered");
-
-    eprintln!("Loading ROM: {}", rom_path);
-    if core.load_game(Path::new(rom_path)).is_err() {
-        eprintln!("Failed to load game");
-        std::process::exit(1);
-    }
-    eprintln!("Load OK");
+    // Set video refresh callback after AV info is available
+    core.set_video_refresh(Some(video_refresh_cb));
+    eprintln!("Video callback registered");
 
     eprintln!("Running at ~{:.1} FPS. Press Ctrl+C to exit.", fps);
 
