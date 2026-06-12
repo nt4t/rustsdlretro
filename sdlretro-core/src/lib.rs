@@ -7,6 +7,9 @@ use libc::{c_void, dlopen, dlsym, dlerror, RTLD_LAZY, dlclose};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+pub mod video;
+pub mod input;
+
 pub struct Core {
     handle: *mut c_void,
 }
@@ -55,8 +58,69 @@ macro_rules! get_symbol {
         unsafe { std::mem::transmute::<*mut c_void, $ty>(ptr) }
     }};
 }
+
 extern "C" fn dummy_environment_cb(_key: u32, _data: *mut c_void) -> bool {
     false
+}
+
+extern "C" fn env_callback(key: u32, data: *mut c_void) -> bool {
+    if key == 10 {
+        let info = data as *mut retro_pixel_format;
+        if !info.is_null() {
+            let format = unsafe { *info };
+            unsafe {
+                video::CORE_FORMAT.bpp = 32;
+                eprintln!("Video: pixel format set to XRGB8888 (id={})", format);
+            }
+        }
+        return true;
+    }
+    false
+}
+
+extern "C" fn audio_sample_cb(_left: i16, _right: i16) {
+}
+
+extern "C" fn audio_sample_batch_cb(_data: *const i16, _frames: usize) -> usize {
+    0
+}
+
+pub struct Throttle {
+    frame_time: u64,
+    next_frame: u64,
+}
+
+impl Throttle {
+    pub fn new(fps: f64) -> Self {
+        let frame_time = (1_000_000.0 / fps) as u64;
+        Self {
+            frame_time,
+            next_frame: now_usec(),
+        }
+    }
+
+    pub fn check_wait(&mut self) -> i64 {
+        let now = now_usec();
+        let result = self.next_frame as i64 - now as i64;
+        if result > 0 {
+            result
+        } else {
+            self.next_frame += self.frame_time;
+            result
+        }
+    }
+
+    pub fn skip_check(&mut self) {
+        self.next_frame += self.frame_time;
+    }
+}
+
+fn now_usec() -> u64 {
+    let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts);
+    }
+    ts.tv_sec as u64 * 1_000_000 + ts.tv_nsec as u64 / 1_000
 }
 
 impl Core {
@@ -80,7 +144,7 @@ impl Core {
         eprintln!("Core: {}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() });
 
         let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
-        unsafe { set_env(Some(dummy_environment_cb)) };
+        unsafe { set_env(Some(env_callback)) };
 
         let init: RetroInitFn = unsafe { get_symbol!(self.handle, "retro_init", RetroInitFn) };
         unsafe { init() };
@@ -90,18 +154,21 @@ impl Core {
         unsafe { set_vr(None) };
 
         let set_audio: RetroSetAudioSampleFn = unsafe { get_symbol!(self.handle, "retro_set_audio_sample", RetroSetAudioSampleFn) };
-        unsafe { set_audio(None) };
+        unsafe { set_audio(Some(audio_sample_cb)) };
 
         let set_audio_batch: RetroSetAudioSampleBatchFn = unsafe { get_symbol!(self.handle, "retro_set_audio_sample_batch", RetroSetAudioSampleBatchFn) };
-        unsafe { set_audio_batch(None) };
-
-        let set_poll: RetroSetInputPollFn = unsafe { get_symbol!(self.handle, "retro_set_input_poll", RetroSetInputPollFn) };
-        unsafe { set_poll(None) };
-
-        let set_state: RetroSetInputStateFn = unsafe { get_symbol!(self.handle, "retro_set_input_state", RetroSetInputStateFn) };
-        unsafe { set_state(None) };
+        unsafe { set_audio_batch(Some(audio_sample_batch_cb)) };
 
         Ok(())
+    }
+
+    pub fn set_callbacks(&self, video_cb: retro_video_refresh_t, poll_cb: retro_input_poll_t, state_cb: retro_input_state_t) {
+        let set_vr: RetroSetVideoRefreshFn = unsafe { get_symbol!(self.handle, "retro_set_video_refresh", RetroSetVideoRefreshFn) };
+        unsafe { set_vr(video_cb) };
+        let set_poll: RetroSetInputPollFn = unsafe { get_symbol!(self.handle, "retro_set_input_poll", RetroSetInputPollFn) };
+        unsafe { set_poll(poll_cb) };
+        let set_state: RetroSetInputStateFn = unsafe { get_symbol!(self.handle, "retro_set_input_state", RetroSetInputStateFn) };
+        unsafe { set_state(state_cb) };
     }
 
     pub fn load_game(&mut self, path: &Path) -> Result<(), CoreError> {

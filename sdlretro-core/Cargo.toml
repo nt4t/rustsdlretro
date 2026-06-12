@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 libc = "0.2"
+evdev = "0.12"
 
 [build-dependencies]
 bindgen = "0.71"

@@ -1,0 +1,3 @@
+[target.thumbv7neon-unknown-linux-gnueabihf]
+runner = "ssh can@192.168.15.7:"
+linker = "arm-linux-gnueabihf-gcc"

@@ -1,0 +1,6 @@
+target/
+*.so
+*.rom
+*.smc
+*.nes
+*.zip
