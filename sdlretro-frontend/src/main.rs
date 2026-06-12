@@ -89,7 +89,7 @@ fn main() {
     let geometry = &av_info.geometry;
     let timing = &av_info.timing;
     let core_w = geometry.base_width;
-    let core_h = geometry.max_height;
+    let core_h = geometry.base_height;
     let fps = timing.fps;
 
     eprintln!("AV: {}x{} @ {:.2} FPS", core_w, core_h, fps);
