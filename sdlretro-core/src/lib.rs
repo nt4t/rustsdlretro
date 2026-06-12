@@ -205,7 +205,7 @@ impl Core {
             })?;
             eprintln!("ROM size: {} bytes", rom_data.len());
             let game_info = retro_game_info {
-                path: c_path.as_ptr(),
+                path: ptr::null(),
                 data: rom_data.as_ptr() as *const c_void,
                 size: rom_data.len(),
                 meta: ptr::null(),
