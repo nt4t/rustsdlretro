@@ -111,24 +111,30 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
     false
 }
 
+static mut SYSTEM_DIR: *const libc::c_char = ptr::null();
+
 pub fn set_system_directory(handle: *mut c_void, dir: &str) {
     let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(handle, "retro_set_environment", RetroSetEnvironmentFn) };
     let c_dir = CString::new(dir).unwrap();
     unsafe {
-        set_env(Some(move |key, data| {
-            if key == 13 {
-                let dir_ptr = data as *mut *const libc::c_char;
-                if !dir_ptr.is_null() {
-                    unsafe {
-                        *dir_ptr = c_dir.as_ptr();
-                    }
-                }
-                eprintln!("System directory set to: {}", dir);
-                return true;
-            }
-            false
-        }));
+        SYSTEM_DIR = c_dir.as_ptr() as *const libc::c_char;
+        std::mem::forget(c_dir);
+        set_env(Some(system_dir_env_callback));
+        eprintln!("System directory set to: {}", dir);
     }
+}
+
+extern "C" fn system_dir_env_callback(key: u32, data: *mut libc::c_void) -> bool {
+    if key == 13 {
+        let dir_ptr = data as *mut *const libc::c_char;
+        if !dir_ptr.is_null() {
+            unsafe {
+                *dir_ptr = SYSTEM_DIR;
+            }
+        }
+        return true;
+    }
+    false
 }
 
 extern "C" fn audio_sample_cb(_left: i16, _right: i16) {
