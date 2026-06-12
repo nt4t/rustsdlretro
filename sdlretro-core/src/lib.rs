@@ -70,6 +70,7 @@ extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
 }
 
 extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
+    eprintln!("Environment callback: key={}", key);
     if key == 33 {
         let log_info = data as *mut retro_log_callback;
         if !log_info.is_null() {
