@@ -12,18 +12,19 @@ const FBIOGET_VSCREENINFO: c_uint = 0x4600;
 pub struct fb_fix_screeninfo {
     pub id: [u8; 16],
     pub smem_start: usize,
-    pub smem_len: c_int,
-    pub type_: c_int,
-    pub type_aux: c_int,
-    pub visual: c_int,
+    pub smem_len: c_uint,
+    pub type_: c_uint,
+    pub type_aux: c_uint,
+    pub visual: c_uint,
     pub xpanstep: c_ushort,
     pub ypanstep: c_ushort,
     pub ywrapstep: c_ushort,
     pub line_length: c_uint,
     pub mmio_start: usize,
-    pub mmio_len: c_int,
-    pub accel: c_int,
+    pub mmio_len: c_uint,
+    pub accel: c_uint,
     pub capabilities: c_ushort,
+    pub reserved: [c_ushort; 2],
 }
 
 #[repr(C)]
@@ -33,8 +34,8 @@ pub struct fb_var_screeninfo {
     pub yres: c_uint,
     pub xres_virtual: c_uint,
     pub yres_virtual: c_uint,
-    pub xoffset: c_int,
-    pub yoffset: c_int,
+    pub xoffset: c_uint,
+    pub yoffset: c_uint,
     pub bits_per_pixel: c_uint,
     pub grayscale: c_uint,
     pub red: fb_bitfield,
@@ -43,13 +44,21 @@ pub struct fb_var_screeninfo {
     pub transp: fb_bitfield,
     pub nonstd: c_uint,
     pub activate: c_uint,
-    pub height: c_int,
-    pub width: c_int,
-    pub accelerate: c_uint,
-    pub flags: c_uint,
+    pub height: c_uint,
+    pub width: c_uint,
+    pub accel_flags: c_uint,
+    pub pixclock: c_uint,
+    pub left_margin: c_uint,
+    pub right_margin: c_uint,
+    pub upper_margin: c_uint,
+    pub lower_margin: c_uint,
+    pub hsync_len: c_uint,
+    pub vsync_len: c_uint,
     pub sync: c_uint,
-    pub refresh: c_uint,
-    pub omega: c_uint,
+    pub vmode: c_uint,
+    pub rotate: c_uint,
+    pub colorspace: c_uint,
+    pub reserved: [c_uint; 4],
 }
 
 #[repr(C)]
@@ -61,7 +70,7 @@ pub struct fb_bitfield {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CoreFormat {
     pub bpp: u32,
     pub width: u32,
@@ -76,19 +85,23 @@ impl CoreFormat {
     };
 }
 
-/// Convert XRGB8888 to RGB565
+pub static mut CORE_FORMAT: CoreFormat = CoreFormat::UNINITIALIZED;
+
 #[inline]
-fn xrgb8888_to_rgb565(src: u32) -> u16 {
-    let r = (src >> 16) & 0xFF;
-    let g = (src >> 8) & 0xFF;
-    let b = src & 0xFF;
-    let r5 = (r >> 3) as u16;
-    let g6 = (g >> 2) as u16;
-    let b5 = (b >> 3) as u16;
-    (r5 << 11) | (g6 << 5) | b5
+fn xrgb8888_to_rgb565(p: u32) -> u16 {
+    let r = (p >> 16) & 0xFF;
+    let g = (p >> 8) & 0xFF;
+    let b = p & 0xFF;
+    ((r & 0xF8) as u16) << 8 | ((g & 0xFC) as u16) << 3 | (b >> 3) as u16
 }
 
-pub static mut CORE_FORMAT: CoreFormat = CoreFormat::UNINITIALIZED;
+#[inline]
+fn rgb565_to_xrgb8888(p: u16) -> u32 {
+    let r5 = (p >> 11) & 0x1F;
+    let g6 = (p >> 5) & 0x3F;
+    let b5 = p & 0x1F;
+    ((r5 << 3 | r5 >> 2) as u32) << 16 | ((g6 << 2 | g6 >> 4) as u32) << 8 | (b5 << 3 | b5 >> 2) as u32
+}
 
 pub struct FbdevVideo {
     fb_fd: c_int,
@@ -117,12 +130,12 @@ impl FbdevVideo {
         let mut fix: fb_fix_screeninfo = unsafe { std::mem::zeroed() };
         let mut var: fb_var_screeninfo = unsafe { std::mem::zeroed() };
 
-        if unsafe { libc::ioctl(fd, FBIOGET_FSCREENINFO, &mut fix) } < 0 {
+        if unsafe { libc::ioctl(fd, FBIOGET_FSCREENINFO as u64, &mut fix) } < 0 {
             unsafe { libc::close(fd) };
             return Err(format!("FBIOGET_FSCREENINFO failed: {}", std::io::Error::last_os_error()));
         }
 
-        if unsafe { libc::ioctl(fd, FBIOGET_VSCREENINFO, &mut var) } < 0 {
+        if unsafe { libc::ioctl(fd, FBIOGET_VSCREENINFO as u64, &mut var) } < 0 {
             unsafe { libc::close(fd) };
             return Err(format!("FBIOGET_VSCREENINFO failed: {}", std::io::Error::last_os_error()));
         }
@@ -175,6 +188,12 @@ impl FbdevVideo {
             return;
         }
 
+        let format = unsafe { CORE_FORMAT };
+        let core_bpp = format.bpp;
+        if core_bpp == 0 {
+            return;
+        }
+
         let core_w = self.core_width;
         let core_h = self.core_height;
         
@@ -183,34 +202,54 @@ impl FbdevVideo {
         }
 
         self.frame_drawn = true;
-        let fb_pp = (self.fb_bpp / 8) as i32;
+        let fb_bpp = self.fb_bpp;
+        let fb_ptr = self.fb_ptr;
+        let fb_pitch = self.fb_pitch as usize;
+        let offset_x = self.offset_x;
+        let offset_y = self.offset_y;
 
-        let src = pixels as *const u32;
-        
-        if self.fb_bpp == 32 {
-            // 32-bit framebuffer: direct copy
+        if fb_bpp == 32 && core_bpp == 32 {
             for y in 0..core_h {
-                let src_row = unsafe { src.add((y as usize) * (pitch / 4)) };
-                let row = (self.offset_y + (y as i32)) as usize;
-                let col = self.offset_x as usize;
-                let dest_offset = row * (self.fb_pitch as usize / 4) + col;
-                let dest_row = unsafe { self.fb_ptr.add(dest_offset * 4) as *mut u32 };
+                let src_row = unsafe { (pixels as *const u8).add((y as usize) * pitch) };
+                let row = (offset_y + (y as i32)) as usize;
+                let dest_offset = row * fb_pitch + (offset_x as usize) * 4;
+                let dest_row = unsafe { fb_ptr.add(dest_offset) };
                 unsafe {
-                    ptr::copy_nonoverlapping(src_row, dest_row, core_w as usize);
+                    ptr::copy_nonoverlapping(src_row, dest_row, (core_w as usize) * 4);
                 }
             }
-        } else if self.fb_bpp == 16 {
-            // 16-bit framebuffer: XRGB8888 -> RGB565 conversion
+        } else if fb_bpp == 16 && core_bpp == 16 {
             for y in 0..core_h {
-                let src_row = unsafe { src.add((y as usize) * (pitch / 4)) };
-                let row = (self.offset_y + (y as i32)) as usize;
-                let col = self.offset_x as usize;
-                let dest_offset = row * (self.fb_pitch as usize / 2) + col;
-                let dest_row = unsafe { self.fb_ptr.add(dest_offset * 2) as *mut u16 };
-                for x in 0..core_w {
-                    let pixel = unsafe { *src_row.add(x as usize) };
-                    let rgb565 = xrgb8888_to_rgb565(pixel);
-                    unsafe { *dest_row.add(x as usize) = rgb565 };
+                let src_row = unsafe { (pixels as *const u8).add((y as usize) * pitch) };
+                let row = (offset_y + (y as i32)) as usize;
+                let dest_offset = row * fb_pitch + (offset_x as usize) * 2;
+                let dest_row = unsafe { fb_ptr.add(dest_offset) };
+                unsafe {
+                    ptr::copy_nonoverlapping(src_row, dest_row, (core_w as usize) * 2);
+                }
+            }
+        } else if fb_bpp == 32 && core_bpp == 16 {
+            for y in 0..core_h {
+                let row = (offset_y + (y as i32)) as usize;
+                let dest_offset = row * fb_pitch + (offset_x as usize) * 4;
+                let dest_row = unsafe { fb_ptr.add(dest_offset) } as *mut u32;
+                let src_row = unsafe { (pixels as *const u16).add((y as usize) * (pitch / 2)) };
+                unsafe {
+                    for x in 0..core_w {
+                        *dest_row.add(x as usize) = rgb565_to_xrgb8888(*src_row.add(x as usize));
+                    }
+                }
+            }
+        } else if fb_bpp == 16 && core_bpp == 32 {
+            for y in 0..core_h {
+                let row = (offset_y + (y as i32)) as usize;
+                let dest_offset = row * fb_pitch + (offset_x as usize) * 2;
+                let dest_row = unsafe { fb_ptr.add(dest_offset) } as *mut u16;
+                let src_row = unsafe { (pixels as *const u32).add((y as usize) * (pitch / 4)) };
+                unsafe {
+                    for x in 0..core_w {
+                        *dest_row.add(x as usize) = xrgb8888_to_rgb565(*src_row.add(x as usize));
+                    }
                 }
             }
         }
