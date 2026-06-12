@@ -68,9 +68,15 @@ extern "C" fn env_callback(key: u32, data: *mut c_void) -> bool {
         let info = data as *mut retro_pixel_format;
         if !info.is_null() {
             let format = unsafe { *info };
+            let (name, bpp) = match format {
+                0 => ("0RGB8888", 32),
+                1 => ("XRGB8888", 32),
+                2 => ("RGB565", 16),
+                _ => ("UNKNOWN", 0),
+            };
             unsafe {
-                video::CORE_FORMAT.bpp = 32;
-                eprintln!("Video: pixel format set to XRGB8888 (id={})", format);
+                video::CORE_FORMAT.bpp = bpp as u32;
+                eprintln!("Video: pixel format set to {} (id={})", name, format);
             }
         }
         return true;
