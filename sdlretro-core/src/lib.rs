@@ -12,6 +12,7 @@ pub mod input;
 
 pub struct Core {
     handle: *mut c_void,
+    need_fullpath: bool,
 }
 
 pub type RetroInitFn = unsafe extern "C" fn();
@@ -140,14 +141,15 @@ impl Core {
             let msg = unsafe { CStr::from_ptr(err_str) }.to_string_lossy().into_owned();
             return Err(CoreError { message: format!("dlopen: {}", msg) });
         }
-        Ok(Core { handle })
+        Ok(Core { handle, need_fullpath: false })
     }
 
     pub fn init(&mut self) -> Result<(), CoreError> {
         let get_info: RetroGetSystemInfoFn = unsafe { get_symbol!(self.handle, "retro_get_system_info", RetroGetSystemInfoFn) };
         let mut info = retro_system_info::default();
         unsafe { get_info(&mut info) };
-        eprintln!("Core: {}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() });
+        self.need_fullpath = info.need_fullpath;
+        eprintln!("Core: {} need_fullpath={}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() }, self.need_fullpath);
 
         let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
         unsafe { set_env(Some(env_callback)) };
@@ -184,23 +186,35 @@ impl Core {
 
     pub fn load_game(&mut self, path: &Path) -> Result<(), CoreError> {
         let load: RetroLoadGameFn = unsafe { get_symbol!(self.handle, "retro_load_game", RetroLoadGameFn) };
-        let rom_data = std::fs::read(path).map_err(|e| {
-            CoreError { message: format!("Failed to read ROM: {}", e) }
-        })?;
         let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
             CoreError { message: "Path contains null bytes".into() }
         })?;
-        let mut game_info = retro_game_info {
-            path: c_path.as_ptr(),
-            data: rom_data.as_ptr() as *const c_void,
-            size: rom_data.len(),
-            meta: ptr::null(),
+        
+        let mut game_info = if self.need_fullpath {
+            retro_game_info {
+                path: c_path.as_ptr(),
+                data: ptr::null(),
+                size: 0,
+                meta: ptr::null(),
+            }
+        } else {
+            let rom_data = std::fs::read(path).map_err(|e| {
+                CoreError { message: format!("Failed to read ROM: {}", e) }
+            })?;
+            let game_info = retro_game_info {
+                path: c_path.as_ptr(),
+                data: rom_data.as_ptr() as *const c_void,
+                size: rom_data.len(),
+                meta: ptr::null(),
+            };
+            std::mem::forget(rom_data);
+            game_info
         };
+        
         let success = unsafe { load(&mut game_info) };
         if !success {
             return Err(CoreError { message: "retro_load_game returned false".into() });
         }
-        std::mem::forget(rom_data);
         Ok(())
     }
 
