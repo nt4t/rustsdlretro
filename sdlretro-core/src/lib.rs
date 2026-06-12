@@ -190,6 +190,8 @@ impl Core {
             CoreError { message: "Path contains null bytes".into() }
         })?;
         
+        eprintln!("Loading ROM: need_fullpath={}, path={}", self.need_fullpath, path.display());
+        
         let mut game_info = if self.need_fullpath {
             retro_game_info {
                 path: c_path.as_ptr(),
@@ -201,6 +203,7 @@ impl Core {
             let rom_data = std::fs::read(path).map_err(|e| {
                 CoreError { message: format!("Failed to read ROM: {}", e) }
             })?;
+            eprintln!("ROM size: {} bytes", rom_data.len());
             let game_info = retro_game_info {
                 path: c_path.as_ptr(),
                 data: rom_data.as_ptr() as *const c_void,
@@ -215,6 +218,7 @@ impl Core {
         if !success {
             return Err(CoreError { message: "retro_load_game returned false".into() });
         }
+        eprintln!("Load OK");
         Ok(())
     }
 
