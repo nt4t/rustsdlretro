@@ -73,6 +73,11 @@ fn main() {
         Err(e) => { eprintln!("Failed to open core: {}", e); std::process::exit(1); }
     };
 
+    let sys_dir = std::env::var("HOME").unwrap_or_default() + "/.config/rustsdlretro";
+    std::fs::create_dir_all(&sys_dir).ok();
+    eprintln!("System directory: {}", sys_dir);
+    sdlretro_core::set_system_directory(core.handle(), &sys_dir);
+
     eprintln!("Initializing core...");
     if core.init().is_err() {
         eprintln!("Failed to init core");

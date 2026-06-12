@@ -15,6 +15,12 @@ pub struct Core {
     need_fullpath: bool,
 }
 
+impl Core {
+    pub fn handle(&self) -> *mut c_void {
+        self.handle
+    }
+}
+
 pub type RetroInitFn = unsafe extern "C" fn();
 pub type RetroDeinitFn = unsafe extern "C" fn();
 pub type RetroSetEnvironmentFn = unsafe extern "C" fn(callback: retro_environment_t);
@@ -98,7 +104,31 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         }
         return true;
     }
+    if key == 13 {
+        eprintln!("Core requested system directory");
+        return true;
+    }
     false
+}
+
+pub fn set_system_directory(handle: *mut c_void, dir: &str) {
+    let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(handle, "retro_set_environment", RetroSetEnvironmentFn) };
+    let c_dir = CString::new(dir).unwrap();
+    unsafe {
+        set_env(Some(move |key, data| {
+            if key == 13 {
+                let dir_ptr = data as *mut *const libc::c_char;
+                if !dir_ptr.is_null() {
+                    unsafe {
+                        *dir_ptr = c_dir.as_ptr();
+                    }
+                }
+                eprintln!("System directory set to: {}", dir);
+                return true;
+            }
+            false
+        }));
+    }
 }
 
 extern "C" fn audio_sample_cb(_left: i16, _right: i16) {
