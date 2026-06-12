@@ -177,6 +177,11 @@ impl Core {
         unsafe { set_state(state_cb) };
     }
 
+    pub fn set_video_refresh(&self, video_cb: retro_video_refresh_t) {
+        let set_vr: RetroSetVideoRefreshFn = unsafe { get_symbol!(self.handle, "retro_set_video_refresh", RetroSetVideoRefreshFn) };
+        unsafe { set_vr(video_cb) };
+    }
+
     pub fn load_game(&mut self, path: &Path) -> Result<(), CoreError> {
         let load: RetroLoadGameFn = unsafe { get_symbol!(self.handle, "retro_load_game", RetroLoadGameFn) };
         let rom_data = std::fs::read(path).map_err(|e| {
