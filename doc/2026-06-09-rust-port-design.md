@@ -10,6 +10,39 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **Target embedded devices**: GCW-Zero (MIPS32), RG-350 (MIPS32), Raspberry Pi (ARM), x86_64 Linux desktop
 - **Memory safety**: No unsafe code except explicit FFI boundary wrappers
 
+## Current Progress
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: Foundation | ✅ DONE | Workspace, sdlretro-core, bindgen, core loading/lifecycle |
+| Phase 2: Video (FBDEV) | ✅ DONE | FbdevVideo with mmap, 1:1 output, letterboxing, pixel format from core |
+| Phase 3: Input | ✅ DONE | evdev crate, background thread, shared Arc<Mutex<InputState>> |
+| Phase 3: Audio | ⏳ STUBBED | Dummy callbacks set, ALSA output pending |
+| Throttle timing | ✅ DONE | clock_gettime(CLOCK_MONOTONIC), drift-correct, frame skip |
+| Cross-compile | ✅ DONE | thumbv7neon-unknown-linux-gnueabihf target configured |
+| Phase 4: UI System | 🔲 TODO | Menu overlay, core selector, ROM loader |
+| Phase 5: Full Integration | 🔲 TODO | Config, i18n, save states, ZIP ROM loading |
+| Phase 6: Hardening | 🔲 TODO | Performance, device testing, packaging |
+
+### Implemented Features
+- **Core loading**: dlopen + bindgen FFI, retro_get_system_info, retro_set_environment, retro_init
+- **ROM loading**: File read + pass data to core when need_fullpath is false
+- **Video**: FbdevVideo struct, fbdev ioctl, mmap, push_frame with letterboxing
+- **Input**: InputReader using evdev crate, background thread, SNES keyboard mapping
+- **Frame timing**: Throttle class with clock_gettime(CLOCK_MONOTONIC), drift-correct
+- **FPS output**: Console print every 5 seconds with frame count and actual FPS
+- **Continuous loop**: Main loop runs indefinitely, Ctrl+C exit via SIGINT handler
+- **Cross-compile**: .cargo/config.toml for thumbv7neon target
+
+### Pending Features
+- **Audio**: ALSA PCM output with resampling (libsamplerate)
+- **UI**: Menu system, core selector, ROM browser
+- **Config**: sdlretro.json loader/writer
+- **Save states**: SRAM/RTC persistence
+- **ZIP ROM loading**: miniz_oxide extraction
+- **Core variables**: Options and preferences
+- **i18n**: Language file loading
+
 ## Architecture
 
 ### Crate Layout
@@ -363,29 +396,38 @@ Reuse existing `external/` libraries where possible:
 
 ## Migration Strategy
 
-### Phase 1: Foundation
+### Phase 1: Foundation ✅ DONE
 - Workspace setup, `sdlretro-core` with bindgen, basic core loading/lifecycle
-- No UI, no audio — just verify core init → load_game → run → unload works
+- Verified: core init → load_game → run → unload works
 
-### Phase 2: Video (FBDEV)
-- `sdlretro-driver` with fbdev video: mmap, pixel conversion, scaling
-- Render a single frame from a known core (e.g., mGBA) to verify framebuffer output
+### Phase 2: Video (FBDEV) ✅ DONE
+- `sdlretro-core` with fbdev video: mmap, pixel conversion, letterboxing
+- Verified: renders frames from snes9x2010 and fceumm cores to /dev/fb0
 
-### Phase 3: Audio + Input
-- ALSA audio output with resampling
-- EVDEV input polling thread
-- Verify audio sync and input responsiveness
+### Phase 3: Audio + Input ✅ PARTIAL
+- EVDEV input polling thread via `evdev` crate — DONE
+- ALSA audio output with resampling — STUBBED (dummy callbacks)
+- Verified: keyboard input works (SNES mapping: arrows, K/J/L/U/S/D, Enter, Shift)
 
-### Phase 4: UI System
+### Throttle Timing ✅ DONE
+- Drift-correct frame timing using `clock_gettime(CLOCK_MONOTONIC)`
+- Frame skip when core is late, tight sleep loop with re-check
+- Verified: 60.10 FPS locked for NES/SNES NTSC cores
+
+### Cross-Compilation ✅ DONE
+- ARM7 (thumbv7neon-unknown-linux-gnueabihf) target configured
+- `.cargo/config.toml` with arm-linux-gnueabihf-gcc linker
+
+### Phase 4: UI System 🔲 TODO
 - `sdlretro-gui` with Painter trait, bitmap font, menu state machine
 - In-game menu overlay, core selector, ROM loader
 
-### Phase 5: Full Integration
+### Phase 5: Full Integration 🔲 TODO
 - `sdlretro-frontend` binary tying everything together
 - Configuration, i18n, save states, ZIP ROM loading
 - Feature parity with existing C++ build
 
-### Phase 6: Hardening
+### Phase 6: Hardening 🔲 TODO
 - Performance profiling and optimization (SIMD, threading)
 - Edge case testing across target devices
 - Documentation and packaging (`.opk` for GCW-Zero)
