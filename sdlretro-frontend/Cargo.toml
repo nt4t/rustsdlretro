@@ -1,5 +1,5 @@
 [package]
-name = "sdlretro-frontend"
+name = "rustsdlretro-frontend"
 version = "0.1.0"
 edition = "2021"
 
