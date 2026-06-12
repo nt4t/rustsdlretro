@@ -64,7 +64,22 @@ extern "C" fn dummy_environment_cb(_key: u32, _data: *mut c_void) -> bool {
     false
 }
 
-extern "C" fn env_callback(key: u32, data: *mut c_void) -> bool {
+extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
+    let msg = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
+    eprintln!("[beetle] {}", msg);
+}
+
+extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
+    if key == 33 {
+        let log_info = data as *mut retro_log_callback;
+        if !log_info.is_null() {
+            unsafe {
+                (*log_info).log = Some(log_callback);
+                eprintln!("Log interface registered");
+            }
+        }
+        return true;
+    }
     if key == 10 {
         let info = data as *mut retro_pixel_format;
         if !info.is_null() {
@@ -152,7 +167,7 @@ impl Core {
         eprintln!("Core: {} need_fullpath={}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() }, self.need_fullpath);
 
         let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
-        unsafe { set_env(Some(env_callback)) };
+        unsafe { set_env(Some(log_environment_cb)) };
 
         let init: RetroInitFn = unsafe { get_symbol!(self.handle, "retro_init", RetroInitFn) };
         unsafe { init() };
