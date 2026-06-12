@@ -72,6 +72,7 @@ extern "C" fn dummy_environment_cb(_key: u32, _data: *mut c_void) -> bool {
 
 extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
     let msg = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
+    eprintln!("[beetle LOG level={}]", level);
     eprintln!("[beetle] {}", msg);
 }
 
