@@ -217,8 +217,14 @@ extern "C" fn system_dir_env_callback(key: u32, data: *mut libc::c_void) -> bool
     false
 }
 
+static mut AUDIO_CB_COUNT: usize = 0;
+
 extern "C" fn audio_sample_cb(left: i16, right: i16) {
     unsafe {
+        AUDIO_CB_COUNT += 1;
+        if AUDIO_CB_COUNT % 10000 == 0 {
+            eprintln!("audio_sample_cb called {} times", AUDIO_CB_COUNT);
+        }
         if let Some(ref audio) = MAIN_AUDIO {
             audio.push_stereo_pair(left, right);
         }
@@ -231,6 +237,8 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
             if !data.is_null() && frames > 0 {
                 let slice = std::slice::from_raw_parts(data, frames * 2);
                 audio.push_batch(slice);
+            } else if frames > 0 {
+                eprintln!("audio_sample_batch_cb: frames={} but data is null", frames);
             }
         }
         frames
