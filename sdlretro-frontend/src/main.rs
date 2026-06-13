@@ -2,9 +2,11 @@ use sdlretro_core::Core;
 use sdlretro_core::video::FbdevVideo;
 use sdlretro_core::input::InputReader;
 use sdlretro_core::Throttle;
+use sdlretro_core::ResolutionState;
 use std::path::Path;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
@@ -104,6 +106,8 @@ fn main() {
     }
     eprintln!("Load OK");
 
+    let res_state = core.get_resolution_state();
+
     // Get AV info after ROM loaded (core may not have valid AV info before load)
     let av_info = core.get_system_av_info();
     let geometry = &av_info.geometry;
@@ -112,6 +116,13 @@ fn main() {
     let core_h = geometry.base_height;
     let fps = timing.fps;
 
+    {
+        let mut s = res_state.lock().unwrap();
+        s.width = core_w;
+        s.height = core_h;
+        s.fps = fps;
+    }
+
     eprintln!("AV: {}x{} @ {:.2} FPS", core_w, core_h, fps);
 
     unsafe {
@@ -119,6 +130,8 @@ fn main() {
             v.set_core_format(core_w, core_h, 32);
         }
     }
+
+    sdlretro_core::set_resolution_state(res_state);
 
     // Set video refresh callback after AV info is available
     core.set_video_refresh(Some(video_refresh_cb));
@@ -139,6 +152,18 @@ fn main() {
             break;
         }
         frame_count += 1;
+
+        let current_fps = {
+            let s = res_state.lock().unwrap();
+            s.fps
+        };
+        if current_fps > 0.0 {
+            let new_frame_time = (1_000_000.0 / current_fps) as u64;
+            if new_frame_time != throttle.frame_time {
+                eprintln!("FPS changed to {:.2}, updating throttle", current_fps);
+                throttle = Throttle::new(current_fps);
+            }
+        }
 
         let usecs = throttle.check_wait();
         if usecs > 0 {

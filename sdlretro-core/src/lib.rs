@@ -2,6 +2,7 @@ use std::ffi::{CString, CStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
+use std::sync::{Arc, Mutex};
 
 use libc::{c_void, dlopen, dlsym, dlerror, RTLD_LAZY, dlclose};
 
@@ -10,9 +11,26 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 pub mod video;
 pub mod input;
 
+pub struct ResolutionState {
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+}
+
+impl Default for ResolutionState {
+    fn default() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            fps: 0.0,
+        }
+    }
+}
+
 pub struct Core {
     handle: *mut c_void,
     need_fullpath: bool,
+    resolution: Arc<Mutex<ResolutionState>>,
 }
 
 impl Core {
@@ -109,10 +127,53 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         eprintln!("Core requested system directory");
         return true;
     }
+    if key == 32 || key == 37 {
+        let geom = data as *mut retro_game_geometry;
+        if !geom.is_null() {
+            let geometry = unsafe { *geom };
+            let w = geometry.base_width;
+            let h = geometry.base_height;
+            let fps = unsafe {
+                if key == 32 {
+                    let av_info = data as *mut retro_system_av_info;
+                    if !av_info.is_null() {
+                        (*av_info).timing.fps
+                    } else {
+                        60.0
+                    }
+                } else {
+                    60.0
+                }
+            };
+            unsafe {
+                if let Some(state) = RESOLUTION_STATE.load() {
+                    let mut s = state.lock().unwrap();
+                    let changed = s.width != w || s.height != h || s.fps != fps;
+                    s.width = w;
+                    s.height = h;
+                    s.fps = fps;
+                    drop(s);
+
+                    if changed {
+                        eprintln!("Resolution changed: {}x{} @ {:.2} FPS", w, h, fps);
+                        if let Some(video) = video::MAIN_VIDEO.as_ref() {
+                            video.set_core_format(w, h, video::CORE_FORMAT.bpp);
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
     false
 }
 
 static mut SYSTEM_DIR: *const libc::c_char = ptr::null();
+static RESOLUTION_STATE: std::sync::OnceLock<Arc<Mutex<ResolutionState>>> = std::sync::OnceLock::new();
+
+pub fn set_resolution_state(state: Arc<Mutex<ResolutionState>>) {
+    RESOLUTION_STATE.set(state).ok();
+}
 
 pub fn set_system_directory(handle: *mut c_void, dir: &str) {
     let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(handle, "retro_set_environment", RetroSetEnvironmentFn) };
@@ -194,7 +255,15 @@ impl Core {
             let msg = unsafe { CStr::from_ptr(err_str) }.to_string_lossy().into_owned();
             return Err(CoreError { message: format!("dlopen: {}", msg) });
         }
-        Ok(Core { handle, need_fullpath: false })
+        Ok(Core {
+            handle,
+            need_fullpath: false,
+            resolution: Arc::new(Mutex::new(ResolutionState::default())),
+        })
+    }
+
+    pub fn get_resolution_state(&self) -> Arc<Mutex<ResolutionState>> {
+        Arc::clone(&self.resolution)
     }
 
     pub fn init(&mut self) -> Result<(), CoreError> {

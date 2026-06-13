@@ -86,6 +86,7 @@ impl CoreFormat {
 }
 
 pub static mut CORE_FORMAT: CoreFormat = CoreFormat::UNINITIALIZED;
+pub static mut MAIN_VIDEO: Option<FbdevVideo> = None;
 
 #[inline]
 fn xrgb8888_to_rgb565(p: u32) -> u16 {
