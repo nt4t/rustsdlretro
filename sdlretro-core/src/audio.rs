@@ -63,7 +63,7 @@ impl Default for RingBuffer {
 
 pub struct AudioDriver {
     pub sample_rate: u32,
-    pcm: Arc<Mutex<Option<alsa::pcm::Pcm>>>,
+    pcm: Arc<Mutex<Option<alsa::pcm::PCM>>>,
     ring_buffer: Arc<Mutex<RingBuffer>>,
     thread_handle: Option<JoinHandle<()>>,
     stopped: Arc<AtomicBool>,
@@ -75,7 +75,7 @@ impl AudioDriver {
         let stopped = Arc::new(AtomicBool::new(false));
         let pcm = Arc::new(Mutex::new(None));
 
-        let pcm_handle = alsa::pcm::Pcm::new(
+        let pcm_handle = alsa::pcm::PCM::new(
             "default",
             alsa::Direction::Playback,
             true,
@@ -83,13 +83,13 @@ impl AudioDriver {
 
         let hw_params = alsa::pcm::HwParams::any(&pcm_handle)
             .map_err(|e| format!("ALSA hw_params failed: {}", e))?;
-        hw_params.set_access(alsa::pcm::Access::Interleaved)
+        hw_params.set_access(alsa::pcm::Access::RWInterleaved)
             .map_err(|e| format!("set_access failed: {}", e))?;
         hw_params.set_format(alsa::pcm::Format::S16LE)
             .map_err(|e| format!("set_format failed: {}", e))?;
         hw_params.set_channels(2)
             .map_err(|e| format!("set_channels failed: {}", e))?;
-        hw_params.set_rate(sample_rate, alsa::pcm::ValueOr::Nearest)
+        hw_params.set_rate(sample_rate, alsa::ValueOr::Nearest)
             .map_err(|e| format!("set_rate failed: {}", e))?;
         pcm_handle.hw_params(&hw_params)
             .map_err(|e| format!("hw_params apply failed: {}", e))?;
@@ -144,7 +144,7 @@ impl AudioDriver {
             pcm_guard.take();
         }
 
-        let pcm_handle = match alsa::pcm::Pcm::new(
+        let pcm_handle = match alsa::pcm::PCM::new(
             "default",
             alsa::Direction::Playback,
             true,
@@ -168,7 +168,7 @@ impl AudioDriver {
             }
         };
 
-        if let Err(e) = hw_params.set_access(alsa::pcm::Access::Interleaved) {
+        if let Err(e) = hw_params.set_access(alsa::pcm::Access::RWInterleaved) {
             eprintln!("ALSA set_access reopen failed: {}, falling back to stub", e);
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
@@ -186,7 +186,7 @@ impl AudioDriver {
             self.stopped.store(true, Ordering::SeqCst);
             return;
         }
-        if let Err(e) = hw_params.set_rate(new_rate, alsa::pcm::ValueOr::Nearest) {
+        if let Err(e) = hw_params.set_rate(new_rate, alsa::ValueOr::Nearest) {
             eprintln!("ALSA set_rate reopen failed: {}, falling back to stub", e);
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
@@ -239,7 +239,7 @@ impl AudioDriver {
 
 fn playback_thread_loop(
     ring_buffer: Arc<Mutex<RingBuffer>>,
-    pcm: Arc<Mutex<Option<alsa::pcm::Pcm>>>,
+    pcm: Arc<Mutex<Option<alsa::pcm::PCM>>>,
     stopped: Arc<AtomicBool>,
 ) {
     let mut buffer = vec![0i16; READ_BATCH_SIZE * 2];
