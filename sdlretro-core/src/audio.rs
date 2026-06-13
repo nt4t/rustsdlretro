@@ -62,7 +62,7 @@ impl Default for RingBuffer {
 }
 
 pub struct AudioDriver {
-    sample_rate: u32,
+    pub sample_rate: u32,
     pcm: Arc<Mutex<Option<alsa::pcm::Pcm>>>,
     ring_buffer: Arc<Mutex<RingBuffer>>,
     thread_handle: Option<JoinHandle<()>>,
@@ -83,13 +83,13 @@ impl AudioDriver {
 
         let hw_params = alsa::pcm::HwParams::any(&pcm_handle)
             .map_err(|e| format!("ALSA hw_params failed: {}", e))?;
-        hw_params.set_access(&pcm_handle, alsa::pcm::AccessType::Interleaved)
+        hw_params.set_access(alsa::pcm::Access::Interleaved)
             .map_err(|e| format!("set_access failed: {}", e))?;
-        hw_params.set_format(&pcm_handle, alsa::pcm::Format::S16Le)
+        hw_params.set_format(alsa::pcm::Format::S16LE)
             .map_err(|e| format!("set_format failed: {}", e))?;
-        hw_params.set_channels(&pcm_handle, 2)
+        hw_params.set_channels(2)
             .map_err(|e| format!("set_channels failed: {}", e))?;
-        hw_params.set_rate(&pcm_handle, sample_rate, alsa::Resampler::Nearest)
+        hw_params.set_rate(sample_rate, alsa::pcm::ValueOr::Nearest)
             .map_err(|e| format!("set_rate failed: {}", e))?;
         pcm_handle.hw_params(&hw_params)
             .map_err(|e| format!("hw_params apply failed: {}", e))?;
@@ -141,9 +141,7 @@ impl AudioDriver {
 
         {
             let mut pcm_guard = self.pcm.lock().unwrap();
-            if let Some(old_pcm) = pcm_guard.take() {
-                let _ = old_pcm.close();
-            }
+            pcm_guard.take();
         }
 
         let pcm_handle = match alsa::pcm::Pcm::new(
@@ -164,51 +162,44 @@ impl AudioDriver {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("ALSA hw_params reopen failed: {}, falling back to stub", e);
-                let _ = pcm_handle.close();
                 self.sample_rate = new_rate;
                 self.stopped.store(true, Ordering::SeqCst);
                 return;
             }
         };
 
-        if let Err(e) = hw_params.set_access(&pcm_handle, alsa::pcm::AccessType::Interleaved) {
+        if let Err(e) = hw_params.set_access(alsa::pcm::Access::Interleaved) {
             eprintln!("ALSA set_access reopen failed: {}, falling back to stub", e);
-            let _ = pcm_handle.close();
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
             return;
         }
-        if let Err(e) = hw_params.set_format(&pcm_handle, alsa::pcm::Format::S16Le) {
+        if let Err(e) = hw_params.set_format(alsa::pcm::Format::S16LE) {
             eprintln!("ALSA set_format reopen failed: {}, falling back to stub", e);
-            let _ = pcm_handle.close();
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
             return;
         }
-        if let Err(e) = hw_params.set_channels(&pcm_handle, 2) {
+        if let Err(e) = hw_params.set_channels(2) {
             eprintln!("ALSA set_channels reopen failed: {}, falling back to stub", e);
-            let _ = pcm_handle.close();
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
             return;
         }
-        if let Err(e) = hw_params.set_rate(&pcm_handle, new_rate, alsa::Resampler::Nearest) {
+        if let Err(e) = hw_params.set_rate(new_rate, alsa::pcm::ValueOr::Nearest) {
             eprintln!("ALSA set_rate reopen failed: {}, falling back to stub", e);
-            let _ = pcm_handle.close();
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
             return;
         }
         if let Err(e) = pcm_handle.hw_params(&hw_params) {
             eprintln!("ALSA hw_params apply reopen failed: {}, falling back to stub", e);
-            let _ = pcm_handle.close();
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
             return;
         }
         if let Err(e) = pcm_handle.start() {
             eprintln!("ALSA PCM start reopen failed: {}, falling back to stub", e);
-            let _ = pcm_handle.close();
             self.sample_rate = new_rate;
             self.stopped.store(true, Ordering::SeqCst);
             return;
@@ -241,9 +232,7 @@ impl AudioDriver {
         }
         {
             let mut pcm_guard = self.pcm.lock().unwrap();
-            if let Some(pcm) = pcm_guard.take() {
-                let _ = pcm.close();
-            }
+            pcm_guard.take();
         }
     }
 }
