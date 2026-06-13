@@ -146,7 +146,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                 }
             };
             unsafe {
-                if let Some(state) = RESOLUTION_STATE.load() {
+                if let Some(state) = RESOLUTION_STATE.get() {
                     let mut s = state.lock().unwrap();
                     let changed = s.width != w || s.height != h || s.fps != fps;
                     s.width = w;
