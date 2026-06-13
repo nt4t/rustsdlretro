@@ -235,12 +235,9 @@ extern "C" fn audio_sample_cb(left: i16, right: i16) {
 extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
     unsafe {
         AUDIO_BATCH_CB_COUNT += 1;
-        if AUDIO_BATCH_CB_COUNT == 1 || AUDIO_BATCH_CB_COUNT % 100 == 0 {
-            if !data.is_null() && frames > 0 {
-                eprintln!("audio_sample_batch_cb called {} times, frames={}", AUDIO_BATCH_CB_COUNT, frames);
-            } else {
-                eprintln!("audio_sample_batch_cb called {} times, frames={} data_null={}", AUDIO_BATCH_CB_COUNT, frames, data.is_null());
-            }
+        if AUDIO_BATCH_CB_COUNT == 1 {
+            eprintln!("audio_sample_batch_cb: FIRST CALL frames={} data_ptr={:?} MAIN_AUDIO_is_some={}", 
+                frames, data, !MAIN_AUDIO.is_none());
         }
         if let Some(ref audio) = MAIN_AUDIO {
             if !data.is_null() && frames > 0 {
@@ -249,6 +246,8 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
             } else if frames > 0 {
                 eprintln!("audio_sample_batch_cb: frames={} but data is null", frames);
             }
+        } else {
+            eprintln!("audio_sample_batch_cb: MAIN_AUDIO is None!");
         }
         frames
     }
