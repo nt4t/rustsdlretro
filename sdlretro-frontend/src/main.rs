@@ -144,10 +144,10 @@ fn main() {
     eprintln!("Audio sample rate (u32): {} Hz", sample_rate_u32);
 
     eprintln!("Initializing audio...");
-    let audio_driver = sdlretro_core::audio::AudioDriver::new(sample_rate);
+    let audio_driver = sdlretro_core::audio::AudioDriver::new(sample_rate_u32);
     match audio_driver {
         Ok(driver) => {
-            eprintln!("Audio driver initialized at {} Hz", sample_rate);
+            eprintln!("Audio driver initialized at {} Hz", sample_rate_u32);
             unsafe { MAIN_AUDIO = Some(driver); }
         }
         Err(e) => {
