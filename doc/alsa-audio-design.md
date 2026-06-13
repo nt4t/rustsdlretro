@@ -101,7 +101,7 @@ Core (retro_run)
 ```
 
 ## audio_sample_cb Handling
-`audio_sample_cb(left, right)` is a thin wrapper that accumulates single sample pairs into a temporary buffer, then calls `audio_sample_batch_cb` once the buffer is full (e.g., 64 samples). This avoids per-sample ALSA calls.
+`audio_sample_cb(left, right)` is a thin wrapper that forwards each stereo pair directly into the ring buffer via `push_batch`. Most cores use `audio_sample_batch_cb` which also writes to the ring buffer. Both paths converge on the same buffer.
 
 ## Sample Rate Change Flow
 When core calls `SET_SYSTEM_AV_INFO` with new `sample_rate`:
