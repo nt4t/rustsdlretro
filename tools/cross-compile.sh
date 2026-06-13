@@ -10,18 +10,35 @@ echo " Cross-compile rustsdlretro"
 echo " Target: ${TARGET}"
 echo "=========================================="
 
+# Map Rust target triples to Debian cross-compiler package names
+declare -A TARGET_TO_DEB_PKG
+TARGET_TO_DEB_PKG["armv7-unknown-linux-gnueabihf"]="arm-linux-gnueabihf"
+TARGET_TO_DEB_PKG["armv7-unknown-linux-musleabihf"]="arm-linux-gnueabihf"
+TARGET_TO_DEB_PKG["aarch64-unknown-linux-gnu"]="aarch64-linux-gnu"
+TARGET_TO_DEB_PKG["aarch64-unknown-linux-musl"]="aarch64-linux-gnu"
+TARGET_TO_DEB_PKG["x86_64-unknown-linux-gnu"]="x86_64-linux-gnu"
+TARGET_TO_DEB_PKG["x86_64-unknown-linux-musl"]="x86_64-linux-gnu"
+TARGET_TO_DEB_PKG["i686-unknown-linux-gnu"]="i686-linux-gnu"
+TARGET_TO_DEB_PKG["riscv64gc-unknown-linux-gnu"]="riscv64-linux-gnu"
+
+get_deb_prefix() {
+    local target="$1"
+    echo "${TARGET_TO_DEB_PKG[$target]:-$target}"
+}
+
 # Install cross-compilation toolchain
 echo "[1/4] Installing cross-compilation toolchain..."
-if ! command -v gcc-${TARGET} &> /dev/null; then
-    echo "  Installing gcc for ${TARGET}..."
+DEB_PREFIX="$(get_deb_prefix "${TARGET}")"
+if ! command -v "${DEB_PREFIX}-gcc" &> /dev/null; then
+    echo "  Installing gcc for ${TARGET} (packages: ${DEB_PREFIX}-gcc)..."
     if command -v apt-get &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y gcc-${TARGET} g++-${TARGET}
+        sudo apt-get update && sudo apt-get install -y "${DEB_PREFIX}-gcc" "${DEB_PREFIX}-g++"
     elif command -v pacman &> /dev/null; then
-        sudo pacman -S --noconfirm gcc-${TARGET}
+        sudo pacman -S --noconfirm "${DEB_PREFIX}-gcc"
     elif command -v brew &> /dev/null; then
         brew install FiloSottile/musl-cross/musl-cross
     else
-        echo "  ERROR: Cannot detect package manager. Please install ${TARGET} toolchain manually."
+        echo "  ERROR: Cannot detect package manager. Please install ${DEB_PREFIX}-gcc manually."
         exit 1
     fi
 fi
@@ -31,15 +48,15 @@ echo "[2/4] Installing cross-compilation dependencies..."
 if command -v apt-get &> /dev/null; then
     sudo apt-get install -y \
         pkg-config \
-        libasound2-dev:${TARGET} \
-        libudev-dev:${TARGET} 2>/dev/null || true
+        libasound2-dev:${DEB_PREFIX} \
+        libudev-dev:${DEB_PREFIX} 2>/dev/null || true
 fi
 
 # Set up cross-compilation environment
 echo "[3/4] Setting up cross-compilation environment..."
-export CC="${TARGET}-gcc"
-export CXX="${TARGET}-g++"
-export PKG_CONFIG_PATH="/usr/lib/${TARGET}/pkgconfig:/usr/share/pkgconfig:/usr/local/lib/${TARGET}/pkgconfig:${PKG_CONFIG_PATH:-}"
+export CC="${DEB_PREFIX}-gcc"
+export CXX="${DEB_PREFIX}-g++"
+export PKG_CONFIG_PATH="/usr/lib/${DEB_PREFIX}/pkgconfig:/usr/share/pkgconfig:/usr/local/lib/${DEB_PREFIX}/pkgconfig:${PKG_CONFIG_PATH:-}"
 export PKG_CONFIG_ALLOW_CROSS=1
 
 # Install Rust target
