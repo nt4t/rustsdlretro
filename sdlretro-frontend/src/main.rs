@@ -21,10 +21,10 @@ fn setup_signal_handler() {
     }
 }
 
-extern "C" fn video_refresh_cb(pixels: *const c_void, _w: u32, _h: u32, pitch: usize) {
+extern "C" fn video_refresh_cb(pixels: *const c_void, w: u32, h: u32, pitch: usize) {
     unsafe {
         if let Some(video) = MAIN_VIDEO.as_mut() {
-            video.push_frame(pixels, pitch);
+            video.push_frame(pixels, w, h, pitch);
         }
     }
 }

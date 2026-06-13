@@ -182,7 +182,7 @@ impl FbdevVideo {
         self.offset_y = ((self.fb_height as i32) - (height as i32)) / 2;
     }
 
-    pub fn push_frame(&mut self, pixels: *const c_void, pitch: usize) {
+    pub fn push_frame(&mut self, pixels: *const c_void, frame_w: u32, frame_h: u32, pitch: usize) {
         if self.skip_frame {
             self.skip_frame = false;
             self.frame_drawn = false;
@@ -195,60 +195,60 @@ impl FbdevVideo {
             return;
         }
 
-        let core_w = self.core_width;
-        let core_h = self.core_height;
-        
-        if core_w == 0 || core_h == 0 {
+        if frame_w == 0 || frame_h == 0 {
             return;
         }
+
+        let frame_w = frame_w as i32;
+        let frame_h = frame_h as i32;
 
         self.frame_drawn = true;
         let fb_bpp = self.fb_bpp;
         let fb_ptr = self.fb_ptr;
         let fb_pitch = self.fb_pitch as usize;
-        let offset_x = self.offset_x;
-        let offset_y = self.offset_y;
+        let offset_x = ((self.fb_width as i32) - frame_w) / 2;
+        let offset_y = ((self.fb_height as i32) - frame_h) / 2;
 
         if fb_bpp == 32 && core_bpp == 32 {
-            for y in 0..core_h {
+            for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u8).add((y as usize) * pitch) };
-                let row = (offset_y + (y as i32)) as usize;
+                let row = (offset_y + y) as usize;
                 let dest_offset = row * fb_pitch + (offset_x as usize) * 4;
                 let dest_row = unsafe { fb_ptr.add(dest_offset) };
                 unsafe {
-                    ptr::copy_nonoverlapping(src_row, dest_row, (core_w as usize) * 4);
+                    ptr::copy_nonoverlapping(src_row, dest_row, (frame_w as usize) * 4);
                 }
             }
         } else if fb_bpp == 16 && core_bpp == 16 {
-            for y in 0..core_h {
+            for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u8).add((y as usize) * pitch) };
-                let row = (offset_y + (y as i32)) as usize;
+                let row = (offset_y + y) as usize;
                 let dest_offset = row * fb_pitch + (offset_x as usize) * 2;
                 let dest_row = unsafe { fb_ptr.add(dest_offset) };
                 unsafe {
-                    ptr::copy_nonoverlapping(src_row, dest_row, (core_w as usize) * 2);
+                    ptr::copy_nonoverlapping(src_row, dest_row, (frame_w as usize) * 2);
                 }
             }
         } else if fb_bpp == 32 && core_bpp == 16 {
-            for y in 0..core_h {
-                let row = (offset_y + (y as i32)) as usize;
+            for y in 0..frame_h {
+                let row = (offset_y + y) as usize;
                 let dest_offset = row * fb_pitch + (offset_x as usize) * 4;
                 let dest_row = unsafe { fb_ptr.add(dest_offset) } as *mut u32;
                 let src_row = unsafe { (pixels as *const u16).add((y as usize) * (pitch / 2)) };
                 unsafe {
-                    for x in 0..core_w {
+                    for x in 0..frame_w {
                         *dest_row.add(x as usize) = rgb565_to_xrgb8888(*src_row.add(x as usize));
                     }
                 }
             }
         } else if fb_bpp == 16 && core_bpp == 32 {
-            for y in 0..core_h {
-                let row = (offset_y + (y as i32)) as usize;
+            for y in 0..frame_h {
+                let row = (offset_y + y) as usize;
                 let dest_offset = row * fb_pitch + (offset_x as usize) * 2;
                 let dest_row = unsafe { fb_ptr.add(dest_offset) } as *mut u16;
                 let src_row = unsafe { (pixels as *const u32).add((y as usize) * (pitch / 4)) };
                 unsafe {
-                    for x in 0..core_w {
+                    for x in 0..frame_w {
                         *dest_row.add(x as usize) = xrgb8888_to_rgb565(*src_row.add(x as usize));
                     }
                 }
