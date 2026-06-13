@@ -156,8 +156,10 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
 
                     if changed {
                         eprintln!("Resolution changed: {}x{} @ {:.2} FPS", w, h, fps);
-                        if let Some(video) = video::MAIN_VIDEO.as_ref() {
-                            video.set_core_format(w, h, video::CORE_FORMAT.bpp);
+                        unsafe {
+                            if let Some(ref mut video) = video::MAIN_VIDEO {
+                                video.set_core_format(w, h, video::CORE_FORMAT.bpp);
+                            }
                         }
                     }
                 }
