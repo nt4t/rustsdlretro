@@ -273,7 +273,7 @@ fn playback_thread_loop(
 
         let pcm_opt = pcm.lock().unwrap();
         if let Some(ref pcm_handle) = *pcm_opt {
-            match pcm_handle.writei(&buffer[..read_count]) {
+            match pcm_handle.io_i16().and_then(|io| io.writei(&buffer[..read_count])) {
                 Ok(frames) => {
                     if (frames as usize) < read_count {
                         eprintln!("ALSA wrote fewer frames than requested: {} vs {}", frames, read_count);
