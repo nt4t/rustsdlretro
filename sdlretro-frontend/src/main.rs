@@ -138,8 +138,10 @@ fn main() {
     core.set_video_refresh(Some(video_refresh_cb));
     eprintln!("Video callback registered");
 
-    let sample_rate = timing.sample_rate as u32;
-    eprintln!("Audio sample rate: {} Hz", sample_rate);
+    let sample_rate = timing.sample_rate;
+    eprintln!("Audio sample rate (raw f64): {}", sample_rate);
+    let sample_rate_u32 = sample_rate as u32;
+    eprintln!("Audio sample rate (u32): {} Hz", sample_rate_u32);
 
     eprintln!("Initializing audio...");
     let audio_driver = sdlretro_core::audio::AudioDriver::new(sample_rate);
