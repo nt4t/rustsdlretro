@@ -18,7 +18,7 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 | Phase 2: Video (FBDEV) | ✅ DONE | FbdevVideo with mmap, 1:1 output, letterboxing, pixel format from core |
 | Phase 3: Input | ✅ DONE | evdev crate, background thread, shared Arc<Mutex<InputState>> |
 | Dynamic Resolution | ✅ DONE | Handles RETRO_ENVIRONMENT_SET_GEOMETRY (key 37) and SET_SYSTEM_AV_INFO (key 32) |
-| Phase 3: Audio | ⏳ STUBBED | Dummy callbacks set, ALSA output pending |
+| Phase 3: Audio | ✅ DONE | ALSA PCM output, ring buffer, playback thread, sample rate changes |
 | Throttle timing | ✅ DONE | clock_gettime(CLOCK_MONOTONIC), drift-correct, frame skip |
 | Cross-compile | ✅ DONE | thumbv7neon-unknown-linux-gnueabihf target configured |
 | Phase 4: UI System | 🔲 TODO | Menu overlay, core selector, ROM loader |
@@ -34,6 +34,7 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **FPS output**: Console print every 5 seconds with frame count and actual FPS
 - **Continuous loop**: Main loop runs indefinitely, Ctrl+C exit via SIGINT handler
 - **Dynamic resolution**: Handles SET_GEOMETRY and SET_SYSTEM_AV_INFO from core, updates letterboxing and throttle in real-time
+- **Audio**: ALSA PCM playback, ring buffer (8192 samples), background thread, sample rate changes via SET_SYSTEM_AV_INFO
 - **Cross-compile**: .cargo/config.toml for armv7 target
 
 ### Pending Features
@@ -182,14 +183,24 @@ The core resolution is used directly from the callback arguments, not cached val
 
 ### Audio Driver (ALSA)
 
-Currently stubbed with dummy callbacks that discard all audio samples.
+Real ALSA PCM output with ring buffer and background playback thread.
 
 ```rust
-extern "C" fn audio_sample_cb(_left: i16, _right: i16) { }
-extern "C" fn audio_sample_batch_cb(_data: *const i16, _frames: usize) -> usize { 0 }
+extern "C" fn audio_sample_cb(left: i16, right: i16) {
+    MAIN_AUDIO.push_stereo_pair(left, right);
+}
+
+extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
+    let slice = std::slice::from_raw_parts(data, frames * 2);
+    MAIN_AUDIO.push_batch(slice);
+    frames
+}
 ```
 
-Future: ALSA PCM output with resampling via `alsa` crate and libsamplerate.
+- **Ring buffer**: 8192 samples (16384 bytes stereo), mutex-protected
+- **Playback thread**: Drains ring buffer into ALSA PCM at 1024-frame batches
+- **Sample rate**: Configured from core's `sample_rate` via SET_SYSTEM_AV_INFO
+- **Underrun recovery**: `snd_pcm_recover` on EPIPE/XRUN
 
 ### Input Driver (EVDEV)
 
@@ -250,7 +261,8 @@ if let Some(state) = RESOLUTION_STATE.get() {
 │    1. core.run()                // retro_run()              │
 │       ├── retro_input_poll_cb()  → input.poll()            │
 │       ├── retro_video_refresh_cb() → video.push_frame()    │
-│       ├── retro_audio_sample_cb()  → audio.push_sample()   │
+│       ├── retro_audio_sample_cb()  → audio.push_stereo()   │
+│       ├── retro_audio_sample_batch_cb() → audio.push_batch │
 │       └── retro_input_state_cb()   → input.read_button()   │
 │    2. throttle.check_wait()       // Frame timing           │
 │       ├── usecs > 0 → sleep loop (re-check)                │
@@ -348,9 +360,9 @@ resolver = "2"
 - `sdlretro-core` with fbdev video: mmap, pixel conversion, letterboxing
 - Verified: renders frames from snes9x2010 and fceumm cores to /dev/fb0
 
-### Phase 3: Audio + Input ✅ PARTIAL
+### Phase 3: Audio + Input ✅ DONE
 - EVDEV input polling thread via `evdev` crate — DONE
-- ALSA audio output with resampling — STUBBED (dummy callbacks)
+- ALSA audio output with ring buffer and playback thread — DONE
 - Verified: keyboard input works (SNES mapping: arrows, K/J/L/U/S/D, Enter, Shift)
 
 ### Dynamic Resolution ✅ DONE
