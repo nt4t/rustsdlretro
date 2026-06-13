@@ -56,8 +56,10 @@ fi
 echo "[3/4] Setting up cross-compilation environment..."
 export CC="${DEB_PREFIX}-gcc"
 export CXX="${DEB_PREFIX}-g++"
-export PKG_CONFIG_PATH="/usr/lib/${DEB_PREFIX}/pkgconfig:/usr/share/pkgconfig:/usr/local/lib/${DEB_PREFIX}/pkgconfig:${PKG_CONFIG_PATH:-}"
+export PKG_CONFIG_LIBDIR="/usr/${DEB_PREFIX}/lib/pkgconfig:/usr/${DEB_PREFIX}/share/pkgconfig:/usr/lib/${DEB_PREFIX}/pkgconfig"
 export PKG_CONFIG_ALLOW_CROSS=1
+echo "  CC=${CC}"
+echo "  PKG_CONFIG_LIBDIR=${PKG_CONFIG_LIBDIR}"
 
 # Install Rust target
 echo "  Adding Rust target ${TARGET}..."
