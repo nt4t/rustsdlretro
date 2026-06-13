@@ -127,9 +127,11 @@ impl AudioDriver {
 
     pub fn push_batch(&self, data: &[i16]) {
         let mut rb = self.ring_buffer.lock().unwrap();
+        let before = rb.len();
         let written = rb.write(data);
-        if written > 0 && (rb.len() % 4096 == 0 || rb.len() < 100) {
-            eprintln!("push_batch: {} samples -> ring buffer now has {} samples ({})", data.len()/2, rb.len()/2, if rb.len() > 0 { "HAS DATA" } else { "EMPTY" });
+        let after = rb.len();
+        if written > 0 {
+            eprintln!("push_batch: {} samples written, ring buffer: {} -> {} samples", written/2, before/2, after/2);
         }
     }
 
@@ -288,6 +290,10 @@ fn playback_thread_loop(
 
         if read_count == 0 {
             continue;
+        }
+
+        if read_count > 0 && (write_count == 0 || write_count % 100 == 0) {
+            eprintln!("playback_thread: read {} samples from ring buffer, writing to ALSA", read_count);
         }
 
         let pcm_opt = pcm.lock().unwrap();
