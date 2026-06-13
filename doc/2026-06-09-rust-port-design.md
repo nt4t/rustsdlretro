@@ -7,7 +7,7 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **Zero SDL dependency**: Direct Linux kernel interfaces only (`/dev/fb0`, `/dev/input/event*`, `/dev/snd/`)
 - **Reuse existing libretro cores**: FFI to `.so` cores, no core rewriting
 - **Preserve feature parity**: Menu system, ZIP ROM loading, configuration, i18n, core variables, save states, performance monitoring
-- **Target embedded devices**: GCW-Zero (MIPS32), RG-350 (MIPS32), Raspberry Pi (ARM), x86_64 Linux desktop
+- **Target devices**: Raspberry Pi (ARM), x86_64 Linux desktop
 - **Memory safety**: No unsafe code except explicit FFI boundary wrappers
 
 ## Current Progress
@@ -32,7 +32,7 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **Frame timing**: Throttle class with clock_gettime(CLOCK_MONOTONIC), drift-correct
 - **FPS output**: Console print every 5 seconds with frame count and actual FPS
 - **Continuous loop**: Main loop runs indefinitely, Ctrl+C exit via SIGINT handler
-- **Cross-compile**: .cargo/config.toml for thumbv7neon target
+- **Cross-compile**: .cargo/config.toml for armv7 target
 
 ### Pending Features
 - **Audio**: ALSA PCM output with resampling (libsamplerate)
@@ -294,29 +294,30 @@ pub enum UiState {
 ┌─────────────────────────────────────────────────────────────┐
 │                        Main Loop (main.rs)                  │
 │                                                             │
-│  loop {                                                     │
-│    1. throttle.wait()           // Frame timing             │
-│    2. core.run()                // retro_run()              │
+│  while RUNNING.load() {                                     │
+│    1. core.run()                // retro_run()              │
 │       ├── retro_input_poll_cb()  → input.poll()            │
 │       ├── retro_video_refresh_cb() → video.push_frame()    │
 │       ├── retro_audio_sample_cb()  → audio.push_sample()   │
 │       └── retro_input_state_cb()   → input.read_button()   │
-│    3. ui.render()               // Draw menu overlay       │
-│    4. ui.handle_input()         // Process input events     │
-│    5. if ui.should_exit() { break; }                        │
-│  }                                                         │
+│    2. throttle.check_wait()       // Frame timing           │
+│       ├── usecs > 0 → sleep loop (re-check)                │
+│       └── usecs <= 0 → set_skip_frame() (frame skip)       │
+│    3. FPS counter (print every 5s)                          │
+│  }                                                          │
+│  Exit: SIGINT → RUNNING.store(false)                        │
 └─────────────────────────────────────────────────────────────┘
          ▲                          │
          │                          ▼
 ┌───────────────────┐    ┌──────────────────────────┐
 │  Input Thread     │    │  Video Driver (fbdev)    │
-│  (fbdev_input.rs) │    │  (fbdev_video.rs)        │
+│  (input.rs)       │    │  (video.rs)              │
 │                   │    │                          │
-│  poll /dev/input  │───▶│  mmap /dev/fb0           │
+│  poll /dev/input  │    │  mmap /dev/fb0           │
 │  event0           │    │  push_frame()            │
-│                   │    │  pixel_convert()         │
-│  update Mutex     │    │  scale_line()            │
-│  InputState       │    │  flush_to_fb()           │
+│                   │    │  pixel_convert()           │
+│  update Mutex     │    │  letterboxing            │
+│  InputState       │    │                          │
 └───────────────────┘    └──────────────────────────┘
 ```
 
@@ -379,11 +380,10 @@ resolver = "2"
 ```
 
 ### Cross-Compilation
-- **GCW-Zero (MIPS32)**: `cargo build --target mips-unknown-linux-gnu` with custom toolchain
-- **RG-350 (MIPS32)**: Same toolchain, different linker flags
 - **ARM (Raspberry Pi)**: `--target armv7-unknown-linux-gnueabihf`
-- Toolchain files in `cargo/` directory (analogous to `cmake/mips32-linux-gcc.cmake`)
-- Conditional compilation: `#[cfg(target_arch = "mips")]`, `#[cfg(target_arch = "arm")]`
+- **x86_64**: Native build on Linux desktop
+- Toolchain files in `cargo/` directory
+- Conditional compilation: `#[cfg(target_arch = "arm")]`, `#[cfg(target_arch = "x86_64")]`
 
 ### Vendored Dependencies
 Reuse existing `external/` libraries where possible:
@@ -447,6 +447,5 @@ Reuse existing `external/` libraries where possible:
 - **Input polling**: Inject synthetic evdev events, verify InputState updates
 
 ### Device-Specific Testing
-- GCW-Zero (MIPS32): Real hardware smoke test
-- RG-350 (MIPS32): Real hardware smoke test
+- Raspberry Pi (ARM): Real hardware smoke test
 - x86_64 Linux VM: Full regression suite with QEMU framebuffer emulation
