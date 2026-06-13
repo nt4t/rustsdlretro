@@ -159,7 +159,7 @@ fn main() {
         };
         if current_fps > 0.0 {
             let new_frame_time = (1_000_000.0 / current_fps) as u64;
-            if new_frame_time != throttle.frame_time {
+            if new_frame_time != throttle.frame_time() {
                 eprintln!("FPS changed to {:.2}, updating throttle", current_fps);
                 throttle = Throttle::new(current_fps);
             }

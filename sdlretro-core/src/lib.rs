@@ -214,6 +214,10 @@ pub struct Throttle {
 }
 
 impl Throttle {
+    pub fn frame_time(&self) -> u64 {
+        self.frame_time
+    }
+
     pub fn new(fps: f64) -> Self {
         let frame_time = (1_000_000.0 / fps) as u64;
         Self {
