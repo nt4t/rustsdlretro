@@ -94,8 +94,10 @@ impl AudioDriver {
                 .map_err(|e| format!("set_rate failed: {}", e))?;
             pcm_handle.hw_params(&hw_params)
                 .map_err(|e| format!("hw_params apply failed: {}", e))?;
-            let (dir, rate) = pcm_handle.hw_params_now().map_err(|e| format!("hw_params_now failed: {}", e))?;
-            eprintln!("ALSA PCM configured: dir={:?}, rate={}, access={:?}", dir, rate, hw_params.access());
+            let current_params = pcm_handle.hw_params_current().map_err(|e| format!("hw_params_current failed: {}", e))?;
+            let rate = current_params.get_rate().unwrap_or(0);
+            let access = current_params.get_access().unwrap_or(alsa::pcm::Access::MMapInterleaved);
+            eprintln!("ALSA PCM configured: rate={}, access={:?}", rate, access);
             pcm_handle.start()
                 .map_err(|e| format!("PCM start failed: {}", e))?;
         }
