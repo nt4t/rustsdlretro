@@ -20,6 +20,8 @@ TARGET_TO_DEB_PKG["x86_64-unknown-linux-gnu"]="x86_64-linux-gnu"
 TARGET_TO_DEB_PKG["x86_64-unknown-linux-musl"]="x86_64-linux-gnu"
 TARGET_TO_DEB_PKG["i686-unknown-linux-gnu"]="i686-linux-gnu"
 TARGET_TO_DEB_PKG["riscv64gc-unknown-linux-gnu"]="riscv64-linux-gnu"
+TARGET_TO_DEB_PKG["thumbv7neon-unknown-linux-gnueabihf"]="arm-linux-gnueabihf"
+TARGET_TO_DEB_PKG["thumbv7neon-unknown-linux-musleabihf"]="arm-linux-gnueabihf"
 
 get_deb_prefix() {
     local target="$1"
@@ -68,6 +70,13 @@ rustup target add "${TARGET}" 2>/dev/null || true
 # Build
 echo "[4/4] Building..."
 cd "${PROJECT_DIR}"
+
+# Use separate target directory to avoid mixing with native builds
+export CARGO_TARGET_DIR="${PROJECT_DIR}/target/cross"
+
+# Clean previous cross-build artifacts for this target
+echo "  Cleaning previous artifacts for ${TARGET}..."
+rm -rf "${CARGO_TARGET_DIR}/${TARGET}/release"
 
 # Build the core library (cdylib)
 echo "  Building sdlretro-core..."
