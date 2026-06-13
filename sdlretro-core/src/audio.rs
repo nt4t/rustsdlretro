@@ -71,6 +71,7 @@ pub struct AudioDriver {
 
 impl AudioDriver {
     pub fn new(sample_rate: u32) -> Result<Self, String> {
+        eprintln!("AudioDriver::new: sample_rate={}", sample_rate);
         let ring_buffer = Arc::new(Mutex::new(RingBuffer::new()));
         let stopped = Arc::new(AtomicBool::new(false));
         let pcm = Arc::new(Mutex::new(None));
