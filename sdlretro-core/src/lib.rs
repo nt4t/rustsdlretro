@@ -327,10 +327,20 @@ impl Core {
         unsafe { set_vr(None) };
 
         let set_audio: RetroSetAudioSampleFn = unsafe { get_symbol!(self.handle, "retro_set_audio_sample", RetroSetAudioSampleFn) };
-        unsafe { set_audio(Some(audio_sample_cb)) };
+        if set_audio != None {
+            unsafe { set_audio(Some(audio_sample_cb)) };
+            eprintln!("Audio sample callback registered");
+        } else {
+            eprintln!("Core does not support retro_set_audio_sample");
+        }
 
         let set_audio_batch: RetroSetAudioSampleBatchFn = unsafe { get_symbol!(self.handle, "retro_set_audio_sample_batch", RetroSetAudioSampleBatchFn) };
-        unsafe { set_audio_batch(Some(audio_sample_batch_cb)) };
+        if set_audio_batch != None {
+            unsafe { set_audio_batch(Some(audio_sample_batch_cb)) };
+            eprintln!("Audio sample batch callback registered");
+        } else {
+            eprintln!("Core does not support retro_set_audio_sample_batch");
+        }
 
         Ok(())
     }
