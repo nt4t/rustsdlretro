@@ -3,6 +3,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 use std::sync::{Arc, Mutex};
+use std::mem::ManuallyDrop;
 
 use libc::{c_void, dlopen, dlsym, dlerror, RTLD_LAZY, dlclose};
 
@@ -158,7 +159,8 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                     if changed {
                         eprintln!("Resolution changed: {}x{} @ {:.2} FPS", w, h, fps);
                         unsafe {
-                            if let Some(ref mut video) = video::MAIN_VIDEO {
+                            if !video::MAIN_VIDEO.is_null() {
+                                let video = &mut *(video::MAIN_VIDEO as *mut video::FbdevVideo);
                                 video.set_core_format(w, h, video::CORE_FORMAT.bpp);
                             }
                         }
@@ -171,7 +173,8 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
             if !av_info.is_null() {
                 let new_sample_rate = unsafe { (*av_info).timing.sample_rate } as u32;
                 unsafe {
-                    if let Some(ref mut audio) = MAIN_AUDIO {
+                    if !MAIN_AUDIO.is_null() {
+                        let audio = &mut *(MAIN_AUDIO as *mut audio::AudioDriver);
                         if new_sample_rate != audio.sample_rate {
                             eprintln!("Sample rate change requested: {} Hz", new_sample_rate);
                             audio.restart_with_rate(new_sample_rate);
@@ -187,7 +190,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
 
 static mut SYSTEM_DIR: *const libc::c_char = ptr::null();
 static RESOLUTION_STATE: std::sync::OnceLock<Arc<Mutex<ResolutionState>>> = std::sync::OnceLock::new();
-pub static mut MAIN_AUDIO: Option<audio::AudioDriver> = None;
+pub static mut MAIN_AUDIO: *mut c_void = ptr::null_mut();
 
 pub fn set_resolution_state(state: Arc<Mutex<ResolutionState>>) {
     RESOLUTION_STATE.set(state).ok();
@@ -226,7 +229,8 @@ extern "C" fn audio_sample_cb(left: i16, right: i16) {
         if AUDIO_CB_COUNT == 1 || AUDIO_CB_COUNT % 10000 == 0 {
             eprintln!("audio_sample_cb called {} times, left={}, right={}", AUDIO_CB_COUNT, left, right);
         }
-        if let Some(ref audio) = MAIN_AUDIO {
+        if !MAIN_AUDIO.is_null() {
+            let audio = &mut *(MAIN_AUDIO as *mut audio::AudioDriver);
             audio.push_stereo_pair(left, right);
         }
     }
@@ -236,10 +240,11 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
     unsafe {
         AUDIO_BATCH_CB_COUNT += 1;
         if AUDIO_BATCH_CB_COUNT == 1 {
-            eprintln!("audio_sample_batch_cb: FIRST CALL frames={} data_ptr={:?} MAIN_AUDIO_is_some={}", 
-                frames, data, !MAIN_AUDIO.is_none());
+            eprintln!("audio_sample_batch_cb: FIRST CALL frames={} data_ptr={:?} MAIN_AUDIO_ptr={:?}", 
+                frames, data, MAIN_AUDIO);
         }
-        if let Some(ref audio) = MAIN_AUDIO {
+        if !MAIN_AUDIO.is_null() {
+            let audio = &mut *(MAIN_AUDIO as *mut audio::AudioDriver);
             if !data.is_null() && frames > 0 {
                 let slice = std::slice::from_raw_parts(data, frames * 2);
                 audio.push_batch(slice);
@@ -247,7 +252,7 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
                 eprintln!("audio_sample_batch_cb: frames={} but data is null", frames);
             }
         } else {
-            eprintln!("audio_sample_batch_cb: MAIN_AUDIO is None!");
+            eprintln!("audio_sample_batch_cb: MAIN_AUDIO is null!");
         }
         frames
     }

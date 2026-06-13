@@ -5,9 +5,11 @@ use sdlretro_core::Throttle;
 use sdlretro_core::ResolutionState;
 use std::path::Path;
 use std::ffi::c_void;
+use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::mem::ManuallyDrop;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 
@@ -23,7 +25,8 @@ fn setup_signal_handler() {
 
 extern "C" fn video_refresh_cb(pixels: *const c_void, w: u32, h: u32, pitch: usize) {
     unsafe {
-        if let Some(video) = MAIN_VIDEO.as_mut() {
+        if !sdlretro_core::video::MAIN_VIDEO.is_null() {
+            let video = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
             video.push_frame(pixels, w, h, pitch);
         }
     }
@@ -42,9 +45,7 @@ extern "C" fn input_state_cb(port: u32, device: u32, index: u32, id: u32) -> i16
     }
 }
 
-static mut MAIN_VIDEO: Option<FbdevVideo> = None;
 static mut MAIN_INPUT: Option<InputReader> = None;
-static mut MAIN_AUDIO: Option<sdlretro_core::audio::AudioDriver> = None;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -89,7 +90,7 @@ fn main() {
     eprintln!("Init OK");
 
     // Store video and input in statics for callbacks
-    unsafe { MAIN_VIDEO = Some(video); }
+    unsafe { sdlretro_core::video::MAIN_VIDEO = Box::into_raw(Box::new(video)) as *mut c_void; }
     unsafe { MAIN_INPUT = Some(input); }
 
     // Set input callbacks before loading ROM
@@ -127,7 +128,8 @@ fn main() {
     eprintln!("AV: {}x{} @ {:.2} FPS", core_w, core_h, fps);
 
     unsafe {
-        if let Some(ref mut v) = MAIN_VIDEO {
+        if !sdlretro_core::video::MAIN_VIDEO.is_null() {
+            let v = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
             v.set_core_format(core_w, core_h, 32);
         }
     }
@@ -148,11 +150,11 @@ fn main() {
     match audio_driver {
         Ok(driver) => {
             eprintln!("Audio driver initialized at {} Hz", sample_rate_u32);
-            unsafe { MAIN_AUDIO = Some(driver); }
+            unsafe { sdlretro_core::MAIN_AUDIO = Box::into_raw(Box::new(driver)) as *mut c_void; }
         }
         Err(e) => {
             eprintln!("Failed to initialize audio (silent mode): {}", e);
-            unsafe { MAIN_AUDIO = None; }
+            unsafe { sdlretro_core::MAIN_AUDIO = ptr::null_mut(); }
         }
     }
 
@@ -194,7 +196,8 @@ fn main() {
             }
         } else {
             unsafe {
-                if let Some(ref mut v) = MAIN_VIDEO {
+                if !sdlretro_core::video::MAIN_VIDEO.is_null() {
+                    let v = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
                     v.set_skip_frame();
                 }
             }
@@ -213,9 +216,14 @@ fn main() {
 
     eprintln!("\nUnloading...");
     unsafe {
-        if let Some(ref mut audio) = MAIN_AUDIO {
+        if !sdlretro_core::MAIN_AUDIO.is_null() {
             eprintln!("Stopping audio...");
+            let audio = &mut *(sdlretro_core::MAIN_AUDIO as *mut sdlretro_core::audio::AudioDriver);
             audio.stop();
+            let _ = Box::from_raw(sdlretro_core::MAIN_AUDIO as *mut sdlretro_core::audio::AudioDriver);
+        }
+        if !sdlretro_core::video::MAIN_VIDEO.is_null() {
+            let _ = Box::from_raw(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
         }
     }
     core.unload();
