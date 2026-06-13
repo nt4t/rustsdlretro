@@ -128,7 +128,9 @@ impl AudioDriver {
     pub fn push_batch(&self, data: &[i16]) {
         let mut rb = self.ring_buffer.lock().unwrap();
         let written = rb.write(data);
-        eprintln!("push_batch: {} frames -> ring buffer now has {} samples", data.len()/2, rb.len()/2);
+        if written > 0 && (rb.len() % 4096 == 0 || rb.len() < 100) {
+            eprintln!("push_batch: {} samples -> ring buffer now has {} samples ({})", data.len()/2, rb.len()/2, if rb.len() > 0 { "HAS DATA" } else { "EMPTY" });
+        }
     }
 
     pub fn push_stereo_pair(&self, left: i16, right: i16) {
@@ -254,9 +256,13 @@ fn playback_thread_loop(
 ) {
     let mut buffer = vec![0i16; READ_BATCH_SIZE * 2];
     let mut write_count = 0u64;
+    let mut empty_count = 0u64;
+
+    eprintln!("playback_thread: started");
 
     loop {
         if stopped.load(Ordering::SeqCst) {
+            eprintln!("playback_thread: stopping (stopped=true)");
             break;
         }
 
@@ -265,9 +271,15 @@ fn playback_thread_loop(
         drop(rb);
 
         if available == 0 {
+            empty_count += 1;
+            if empty_count % 10000 == 0 {
+                eprintln!("playback_thread: {} empty iterations", empty_count);
+            }
             std::thread::sleep(std::time::Duration::from_millis(1));
             continue;
         }
+
+        empty_count = 0;
 
         let mut rb = ring_buffer.lock().unwrap();
         let to_read = available.min(buffer.len());
@@ -283,8 +295,8 @@ fn playback_thread_loop(
             match pcm_handle.io_i16().and_then(|io| io.writei(&buffer[..read_count])) {
                 Ok(frames) => {
                     write_count += 1;
-                    if write_count % 1000 == 0 {
-                        eprintln!("playback_thread: {} total ALSA writes, {} frames written", write_count, frames);
+                    if write_count == 1 || write_count % 1000 == 0 {
+                        eprintln!("playback_thread: {} total ALSA writes, {} frames written this call", write_count, frames);
                     }
                     if (frames as usize) < read_count {
                         eprintln!("ALSA wrote fewer frames than requested: {} vs {}", frames, read_count);
@@ -300,6 +312,8 @@ fn playback_thread_loop(
                     eprintln!("ALSA write error recovered: {}", e);
                 }
             }
+        } else {
+            eprintln!("playback_thread: pcm_handle is None");
         }
     }
 }
