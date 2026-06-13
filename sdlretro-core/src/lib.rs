@@ -254,20 +254,6 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
     }
 }
 
-extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
-    unsafe {
-        if let Some(ref audio) = MAIN_AUDIO {
-            if !data.is_null() && frames > 0 {
-                let slice = std::slice::from_raw_parts(data, frames * 2);
-                audio.push_batch(slice);
-            } else if frames > 0 {
-                eprintln!("audio_sample_batch_cb: frames={} but data is null", frames);
-            }
-        }
-        frames
-    }
-}
-
 pub struct Throttle {
     frame_time: u64,
     next_frame: u64,
