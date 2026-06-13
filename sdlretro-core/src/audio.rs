@@ -81,20 +81,22 @@ impl AudioDriver {
             true,
         ).map_err(|e| format!("ALSA PCM open failed: {}", e))?;
 
-        let hw_params = alsa::pcm::HwParams::any(&pcm_handle)
-            .map_err(|e| format!("ALSA hw_params failed: {}", e))?;
-        hw_params.set_access(alsa::pcm::Access::RWInterleaved)
-            .map_err(|e| format!("set_access failed: {}", e))?;
-        hw_params.set_format(alsa::pcm::Format::S16LE)
-            .map_err(|e| format!("set_format failed: {}", e))?;
-        hw_params.set_channels(2)
-            .map_err(|e| format!("set_channels failed: {}", e))?;
-        hw_params.set_rate(sample_rate, alsa::ValueOr::Nearest)
-            .map_err(|e| format!("set_rate failed: {}", e))?;
-        pcm_handle.hw_params(&hw_params)
-            .map_err(|e| format!("hw_params apply failed: {}", e))?;
-        pcm_handle.start()
-            .map_err(|e| format!("PCM start failed: {}", e))?;
+        {
+            let hw_params = alsa::pcm::HwParams::any(&pcm_handle)
+                .map_err(|e| format!("ALSA hw_params failed: {}", e))?;
+            hw_params.set_access(alsa::pcm::Access::RWInterleaved)
+                .map_err(|e| format!("set_access failed: {}", e))?;
+            hw_params.set_format(alsa::pcm::Format::S16LE)
+                .map_err(|e| format!("set_format failed: {}", e))?;
+            hw_params.set_channels(2)
+                .map_err(|e| format!("set_channels failed: {}", e))?;
+            hw_params.set_rate(sample_rate, alsa::ValueOr::Nearest)
+                .map_err(|e| format!("set_rate failed: {}", e))?;
+            pcm_handle.hw_params(&hw_params)
+                .map_err(|e| format!("hw_params apply failed: {}", e))?;
+            pcm_handle.start()
+                .map_err(|e| format!("PCM start failed: {}", e))?;
+        }
 
         {
             let mut pcm_guard = pcm.lock().unwrap();
@@ -158,51 +160,53 @@ impl AudioDriver {
             }
         };
 
-        let hw_params = match alsa::pcm::HwParams::any(&pcm_handle) {
-            Ok(h) => h,
-            Err(e) => {
-                eprintln!("ALSA hw_params reopen failed: {}, falling back to stub", e);
+        {
+            let hw_params = match alsa::pcm::HwParams::any(&pcm_handle) {
+                Ok(h) => h,
+                Err(e) => {
+                    eprintln!("ALSA hw_params reopen failed: {}, falling back to stub", e);
+                    self.sample_rate = new_rate;
+                    self.stopped.store(true, Ordering::SeqCst);
+                    return;
+                }
+            };
+
+            if let Err(e) = hw_params.set_access(alsa::pcm::Access::RWInterleaved) {
+                eprintln!("ALSA set_access reopen failed: {}, falling back to stub", e);
                 self.sample_rate = new_rate;
                 self.stopped.store(true, Ordering::SeqCst);
                 return;
             }
-        };
-
-        if let Err(e) = hw_params.set_access(alsa::pcm::Access::RWInterleaved) {
-            eprintln!("ALSA set_access reopen failed: {}, falling back to stub", e);
-            self.sample_rate = new_rate;
-            self.stopped.store(true, Ordering::SeqCst);
-            return;
-        }
-        if let Err(e) = hw_params.set_format(alsa::pcm::Format::S16LE) {
-            eprintln!("ALSA set_format reopen failed: {}, falling back to stub", e);
-            self.sample_rate = new_rate;
-            self.stopped.store(true, Ordering::SeqCst);
-            return;
-        }
-        if let Err(e) = hw_params.set_channels(2) {
-            eprintln!("ALSA set_channels reopen failed: {}, falling back to stub", e);
-            self.sample_rate = new_rate;
-            self.stopped.store(true, Ordering::SeqCst);
-            return;
-        }
-        if let Err(e) = hw_params.set_rate(new_rate, alsa::ValueOr::Nearest) {
-            eprintln!("ALSA set_rate reopen failed: {}, falling back to stub", e);
-            self.sample_rate = new_rate;
-            self.stopped.store(true, Ordering::SeqCst);
-            return;
-        }
-        if let Err(e) = pcm_handle.hw_params(&hw_params) {
-            eprintln!("ALSA hw_params apply reopen failed: {}, falling back to stub", e);
-            self.sample_rate = new_rate;
-            self.stopped.store(true, Ordering::SeqCst);
-            return;
-        }
-        if let Err(e) = pcm_handle.start() {
-            eprintln!("ALSA PCM start reopen failed: {}, falling back to stub", e);
-            self.sample_rate = new_rate;
-            self.stopped.store(true, Ordering::SeqCst);
-            return;
+            if let Err(e) = hw_params.set_format(alsa::pcm::Format::S16LE) {
+                eprintln!("ALSA set_format reopen failed: {}, falling back to stub", e);
+                self.sample_rate = new_rate;
+                self.stopped.store(true, Ordering::SeqCst);
+                return;
+            }
+            if let Err(e) = hw_params.set_channels(2) {
+                eprintln!("ALSA set_channels reopen failed: {}, falling back to stub", e);
+                self.sample_rate = new_rate;
+                self.stopped.store(true, Ordering::SeqCst);
+                return;
+            }
+            if let Err(e) = hw_params.set_rate(new_rate, alsa::ValueOr::Nearest) {
+                eprintln!("ALSA set_rate reopen failed: {}, falling back to stub", e);
+                self.sample_rate = new_rate;
+                self.stopped.store(true, Ordering::SeqCst);
+                return;
+            }
+            if let Err(e) = pcm_handle.hw_params(&hw_params) {
+                eprintln!("ALSA hw_params apply reopen failed: {}, falling back to stub", e);
+                self.sample_rate = new_rate;
+                self.stopped.store(true, Ordering::SeqCst);
+                return;
+            }
+            if let Err(e) = pcm_handle.start() {
+                eprintln!("ALSA PCM start reopen failed: {}, falling back to stub", e);
+                self.sample_rate = new_rate;
+                self.stopped.store(true, Ordering::SeqCst);
+                return;
+            }
         }
 
         {
@@ -269,7 +273,7 @@ fn playback_thread_loop(
 
         let pcm_opt = pcm.lock().unwrap();
         if let Some(ref pcm_handle) = *pcm_opt {
-            match pcm_handle.write(&buffer[..read_count]) {
+            match pcm_handle.writei(&buffer[..read_count]) {
                 Ok(frames) => {
                     if (frames as usize) < read_count {
                         eprintln!("ALSA wrote fewer frames than requested: {} vs {}", frames, read_count);
@@ -279,7 +283,7 @@ fn playback_thread_loop(
                     drop(pcm_opt);
                     let mut pcm_guard = pcm.lock().unwrap();
                     if let Some(ref mut p) = *pcm_guard {
-                        let _ = p.recover(e.raw_error());
+                        let _ = p.recover(e.raw_error(), true);
                         let _ = p.start();
                     }
                     eprintln!("ALSA write error recovered: {}", e);
