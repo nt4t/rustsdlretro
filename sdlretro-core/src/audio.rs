@@ -94,6 +94,8 @@ impl AudioDriver {
                 .map_err(|e| format!("set_rate failed: {}", e))?;
             pcm_handle.hw_params(&hw_params)
                 .map_err(|e| format!("hw_params apply failed: {}", e))?;
+            let (dir, rate) = pcm_handle.hw_params_now().map_err(|e| format!("hw_params_now failed: {}", e))?;
+            eprintln!("ALSA PCM configured: dir={:?}, rate={}, access={:?}", dir, rate, hw_params.access());
             pcm_handle.start()
                 .map_err(|e| format!("PCM start failed: {}", e))?;
         }
@@ -122,7 +124,8 @@ impl AudioDriver {
 
     pub fn push_batch(&self, data: &[i16]) {
         let mut rb = self.ring_buffer.lock().unwrap();
-        rb.write(data);
+        let written = rb.write(data);
+        eprintln!("push_batch: {} frames -> ring buffer now has {} samples", data.len()/2, rb.len()/2);
     }
 
     pub fn push_stereo_pair(&self, left: i16, right: i16) {
@@ -247,6 +250,7 @@ fn playback_thread_loop(
     stopped: Arc<AtomicBool>,
 ) {
     let mut buffer = vec![0i16; READ_BATCH_SIZE * 2];
+    let mut write_count = 0u64;
 
     loop {
         if stopped.load(Ordering::SeqCst) {
@@ -275,6 +279,10 @@ fn playback_thread_loop(
         if let Some(ref pcm_handle) = *pcm_opt {
             match pcm_handle.io_i16().and_then(|io| io.writei(&buffer[..read_count])) {
                 Ok(frames) => {
+                    write_count += 1;
+                    if write_count % 1000 == 0 {
+                        eprintln!("playback_thread: {} total ALSA writes, {} frames written", write_count, frames);
+                    }
                     if (frames as usize) < read_count {
                         eprintln!("ALSA wrote fewer frames than requested: {} vs {}", frames, read_count);
                     }
@@ -283,7 +291,7 @@ fn playback_thread_loop(
                     drop(pcm_opt);
                     let mut pcm_guard = pcm.lock().unwrap();
                     if let Some(ref mut p) = *pcm_guard {
-                        let _ =                p.recover(e.errno(), true);
+                        let _ = p.recover(e.errno(), true);
                         let _ = p.start();
                     }
                     eprintln!("ALSA write error recovered: {}", e);
