@@ -44,6 +44,7 @@ extern "C" fn input_state_cb(port: u32, device: u32, index: u32, id: u32) -> i16
 
 static mut MAIN_VIDEO: Option<FbdevVideo> = None;
 static mut MAIN_INPUT: Option<InputReader> = None;
+static mut MAIN_AUDIO: Option<sdlretro_core::audio::AudioDriver> = None;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -137,6 +138,22 @@ fn main() {
     core.set_video_refresh(Some(video_refresh_cb));
     eprintln!("Video callback registered");
 
+    let sample_rate = timing.sample_rate as u32;
+    eprintln!("Audio sample rate: {} Hz", sample_rate);
+
+    eprintln!("Initializing audio...");
+    let audio_driver = sdlretro_core::audio::AudioDriver::new(sample_rate);
+    match audio_driver {
+        Ok(driver) => {
+            eprintln!("Audio driver initialized at {} Hz", sample_rate);
+            unsafe { MAIN_AUDIO = Some(driver); }
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize audio (silent mode): {}", e);
+            unsafe { MAIN_AUDIO = None; }
+        }
+    }
+
     eprintln!("Running at ~{:.1} FPS. Press Ctrl+C to exit.", fps);
 
     setup_signal_handler();
@@ -193,6 +210,12 @@ fn main() {
     }
 
     eprintln!("\nUnloading...");
+    unsafe {
+        if let Some(ref mut audio) = MAIN_AUDIO {
+            eprintln!("Stopping audio...");
+            audio.stop();
+        }
+    }
     core.unload();
     eprintln!("Done. ({} total frames)", frame_count);
 }

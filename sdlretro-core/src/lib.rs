@@ -10,6 +10,7 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 pub mod video;
 pub mod input;
+pub mod audio;
 
 pub struct ResolutionState {
     pub width: u32,
@@ -165,6 +166,20 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                 }
             }
         }
+        if key == 32 {
+            let av_info = data as *mut retro_system_av_info;
+            if !av_info.is_null() {
+                let new_sample_rate = unsafe { (*av_info).timing.sample_rate } as u32;
+                unsafe {
+                    if let Some(ref mut audio) = MAIN_AUDIO {
+                        if new_sample_rate != audio.sample_rate {
+                            eprintln!("Sample rate change requested: {} Hz", new_sample_rate);
+                            audio.restart_with_rate(new_sample_rate);
+                        }
+                    }
+                }
+            }
+        }
         return true;
     }
     false
@@ -172,6 +187,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
 
 static mut SYSTEM_DIR: *const libc::c_char = ptr::null();
 static RESOLUTION_STATE: std::sync::OnceLock<Arc<Mutex<ResolutionState>>> = std::sync::OnceLock::new();
+pub static mut MAIN_AUDIO: Option<audio::AudioDriver> = None;
 
 pub fn set_resolution_state(state: Arc<Mutex<ResolutionState>>) {
     RESOLUTION_STATE.set(state).ok();
@@ -201,11 +217,24 @@ extern "C" fn system_dir_env_callback(key: u32, data: *mut libc::c_void) -> bool
     false
 }
 
-extern "C" fn audio_sample_cb(_left: i16, _right: i16) {
+extern "C" fn audio_sample_cb(left: i16, right: i16) {
+    unsafe {
+        if let Some(ref audio) = MAIN_AUDIO {
+            audio.push_stereo_pair(left, right);
+        }
+    }
 }
 
-extern "C" fn audio_sample_batch_cb(_data: *const i16, _frames: usize) -> usize {
-    0
+extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
+    unsafe {
+        if let Some(ref audio) = MAIN_AUDIO {
+            if !data.is_null() && frames > 0 {
+                let slice = std::slice::from_raw_parts(data, frames * 2);
+                audio.push_batch(slice);
+            }
+        }
+        frames
+    }
 }
 
 pub struct Throttle {
