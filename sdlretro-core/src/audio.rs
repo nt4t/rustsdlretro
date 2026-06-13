@@ -283,7 +283,7 @@ fn playback_thread_loop(
                     drop(pcm_opt);
                     let mut pcm_guard = pcm.lock().unwrap();
                     if let Some(ref mut p) = *pcm_guard {
-                        let _ = p.recover(e.raw_error(), true);
+                        let _ =                p.recover(e.errno(), true);
                         let _ = p.start();
                     }
                     eprintln!("ALSA write error recovered: {}", e);
