@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 fn main() {
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let libretro_h = PathBuf::from(&crate_dir).parent().unwrap().join("libretro.h");
+    let libretro_h = PathBuf::from(&crate_dir).parent().unwrap().join("doc").join("libretro.h");
 
     println!("cargo:rerun-if-changed={}", libretro_h.display());
 
