@@ -131,7 +131,7 @@ fn main() {
         }
     }
 
-    sdlretro_core::set_resolution_state(res_state);
+    sdlretro_core::set_resolution_state(res_state.clone());
 
     // Set video refresh callback after AV info is available
     core.set_video_refresh(Some(video_refresh_cb));
