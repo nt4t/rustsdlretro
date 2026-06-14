@@ -235,7 +235,7 @@ impl Gui {
                     return true;
                 }
             }
-            None => eprintln!("GUI: core_opts is None"),
+            None => {}
         }
         false
     }
