@@ -30,6 +30,7 @@ fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
         32 => Some(JOYPAD_R),
         28 => Some(JOYPAD_START),
         42 | 54 => Some(JOYPAD_SELECT),
+        59 => Some(12), // F1 - menu toggle
         _ => None,
     }
 }
@@ -106,6 +107,7 @@ impl InputReader {
             42 => self.check_keycodes(&[42]),               // Left Shift
             54 => self.check_keycodes(&[54]),               // Right Shift
             57 => self.check_keycodes(&[57]),               // Space
+            59 => self.check_keycodes(&[59]),               // F1
             _ => false,
         }
     }
