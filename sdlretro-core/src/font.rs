@@ -523,16 +523,16 @@ fn draw_char_impl(
             }
             
             // Main text position
-            let mx = x + px + fd.x;
-            let my = y + py + fd.y;
+            let mx = x + (px as i32) + fd.x;
+            let my = y + (py as i32) + fd.y;
             if mx >= 0 && my >= 0 {
                 write_pixel(fb_ptr, fb_pitch, fb_bpp, mx, my, text_color);
             }
             
             // Shadow pass
             if shadow {
-                let sx = x + px + fd.x + 1;
-                let sy = y + py + fd.y + 1;
+                let sx = x + (px as i32) + fd.x + 1;
+                let sy = y + (py as i32) + fd.y + 1;
                 if sx >= 0 && sy >= 0 {
                     write_pixel(fb_ptr, fb_pitch, fb_bpp, sx, sy, shadow_color);
                 }

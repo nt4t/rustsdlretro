@@ -361,12 +361,12 @@ impl Gui {
                     // Draw info text if selected and show_info is true
                     if is_selected && self.show_info {
                         if let Some(ref info_text) = info {
-                            let info_y = item_y + 14;
                             let max_width = bg_x2 - bg_x1 - 30;
                             let wrapped = wrap_text(info_text, max_width / 6);
+                            let mut info_y = item_y + 14;
                             for line in wrapped {
                                 video.draw_text_overlay(item_x, info_y, line.as_bytes(), 0x666666);
-                                *info_y += 12;
+                                info_y += 12;
                                 if info_y >= bg_y2 - 20 {
                                     break;
                                 }

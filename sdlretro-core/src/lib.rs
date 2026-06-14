@@ -172,7 +172,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         let v2_opts = data;
         if !v2_opts.is_null() {
             unsafe {
-                let v2_ptr = v2_opts as *mut bindings::retro_core_options_v2;
+                let v2_ptr = v2_opts as *mut retro_core_options_v2;
                 if !v2_ptr.is_null() {
                     let definitions = core_options::parse_v2_definitions((*v2_ptr).definitions);
                     eprintln!("Core options (v2): {} options loaded", definitions.len());
@@ -196,7 +196,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         return true;
     }
     if key == 55 {
-        let display = data as *mut bindings::retro_core_option_display;
+        let display = data as *mut retro_core_option_display;
         if !display.is_null() {
             unsafe {
                 let key_ptr = (*display).key;

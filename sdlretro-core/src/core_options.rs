@@ -7,9 +7,9 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::ptr;
 
-use crate::bindings::{
+use super::{
     retro_core_option_value, retro_core_option_definition, retro_core_option_v2_definition,
-    retro_core_options_v2, RETRO_NUM_CORE_OPTION_VALUES_MAX,
+    RETRO_NUM_CORE_OPTION_VALUES_MAX,
 };
 
 /// A single option value (key + display label)
@@ -76,7 +76,13 @@ impl CoreOptions {
         // This would be populated from RETRO_ENVIRONMENT_GET_VARIABLE
         // For now, returns the default value
         self.definitions()?.iter().find(|opt| opt.key == key).and_then(|opt| {
-            opt.values.iter().find(|v| v.value == opt.default_value.as_deref()).map(|v| v.value.clone())
+            opt.values.iter().find(|v| {
+                if let Some(ref default) = opt.default_value {
+                    v.value == default
+                } else {
+                    false
+                }
+            }).map(|v| v.value.clone())
         })
     }
 }
