@@ -216,6 +216,24 @@ impl Gui {
         }
     }
 
+    /// Try to initialize menu from global core options (returns true if initialized)
+    pub fn try_init_menu_from_global(&mut self) -> bool {
+        if self.menu.is_some() {
+            return true;
+        }
+        if let Some(core_opts) = crate::get_core_options_raw() {
+            if let Some(ref defs) = core_opts.v1 {
+                let core_name = core_opts.v2.as_ref()
+                    .and_then(|v2| v2.category.as_ref())
+                    .map(|c| &c.title)
+                    .unwrap_or("Core");
+                self.init_menu(core_name, &defs.definitions);
+                return true;
+            }
+        }
+        false
+    }
+
     /// Handle input and return new state
     pub fn handle_input(&mut self, input: &InputReader, fb_height: u32) -> GuiState {
         eprintln!("DEBUG handle_input: current state={:?}", self.state);
@@ -225,7 +243,8 @@ impl Gui {
             eprintln!("DEBUG handle_input: f1_pressed={}, about to toggle_menu", f1_pressed);
             if f1_pressed {
                 self.toggle_menu();
-                eprintln!("DEBUG handle_input: after toggle_menu, state={:?}", self.state);
+                self.try_init_menu_from_global();
+                eprintln!("DEBUG handle_input: after toggle_menu, state={:?}, menu={:?}", self.state, if self.menu.is_some() { "some" } else { "none" });
             }
             return self.state.clone();
         }

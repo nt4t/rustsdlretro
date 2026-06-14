@@ -101,6 +101,10 @@ extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
 
 static mut CORE_OPTIONS: Option<core_options::CoreOptions> = None;
 
+pub fn get_core_options_raw() -> Option<&'static core_options::CoreOptions> {
+    unsafe { CORE_OPTIONS.as_ref() }
+}
+
 extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
     if key == 31 {
         let log_info = data as *mut retro_log_callback;
