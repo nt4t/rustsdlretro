@@ -106,6 +106,7 @@ pub fn get_core_options_raw() -> Option<&'static core_options::CoreOptions> {
 }
 
 extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
+    eprintln!("ENV callback: key={}", key);
     if key == 31 {
         let log_info = data as *mut retro_log_callback;
         if !log_info.is_null() {
