@@ -225,7 +225,7 @@ impl Gui {
             if let Some(ref defs) = core_opts.v1 {
                 let core_name = core_opts.v2.as_ref()
                     .and_then(|v2| v2.categories.first())
-                    .map(|c| &c.title)
+                    .map(|c| c.desc.as_str())
                     .unwrap_or("Core");
                 self.init_menu(core_name, &defs.definitions);
                 return true;
