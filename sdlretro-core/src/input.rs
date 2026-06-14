@@ -30,6 +30,7 @@ fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
         32 => Some(JOYPAD_R),
         28 => Some(JOYPAD_START),
         42 | 54 => Some(JOYPAD_SELECT),
+        1 => Some(13),  // ESC - menu toggle
         59 => Some(12), // F1 - menu toggle
         _ => None,
     }
