@@ -308,9 +308,13 @@ impl Gui {
         let menu = match &self.menu {
             Some(m) => m,
             None => {
-                let overlay_y = 50;
+                let w = fb_width as i32;
+                let h = fb_height as i32;
+                video.draw_rect_overlay(10, 40, w - 10, 120, 0x000000);
+                let overlay_y = 60;
                 video.draw_text_overlay(20, overlay_y, b"Core options not available", 0xFFFF00);
                 video.draw_text_overlay(20, overlay_y + 20, b"Press ESC to close", 0x888888);
+                eprintln!("GUI: rendered fallback overlay");
                 return;
             }
         };
