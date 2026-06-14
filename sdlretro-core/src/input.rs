@@ -114,7 +114,7 @@ impl InputReader {
         for &code in codes {
             if let Some(joypad_id) = keycode_to_joypad(code) {
                 let s = self.state.lock().unwrap();
-                if joypad_id as usize < s.len() && s[joypad_id as usize] == 1 {
+                if (joypad_id as usize) < s.len() && s[joypad_id as usize] == 1 {
                     return true;
                 }
             }
