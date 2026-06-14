@@ -63,14 +63,12 @@ impl InputReader {
                 match device.fetch_events() {
                     Ok(events) => {
                         for event in events {
-                            eprintln!("Input event: code={} value={}", event.code(), event.value());
                             if event.value() == 1 {
                                 if let Some(joypad_id) = keycode_to_joypad(event.code()) {
                                     let mut s = state_clone.lock().unwrap();
                                     s[joypad_id as usize] = 1;
                                     let mut jp = just_pressed_clone.lock().unwrap();
                                     jp[joypad_id as usize] = true;
-                                    eprintln!("Mapped: code={} -> joypad={}", event.code(), joypad_id);
                                 }
                             } else if event.value() == 0 {
                                 if let Some(joypad_id) = keycode_to_joypad(event.code()) {
@@ -78,7 +76,6 @@ impl InputReader {
                                     s[joypad_id as usize] = 0;
                                     let mut jp = just_pressed_clone.lock().unwrap();
                                     jp[joypad_id as usize] = false;
-                                    eprintln!("Released: code={} -> joypad={}", event.code(), joypad_id);
                                 }
                             }
                         }
