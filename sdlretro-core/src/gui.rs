@@ -224,7 +224,7 @@ impl Gui {
         if let Some(core_opts) = crate::get_core_options_raw() {
             if let Some(ref defs) = core_opts.v1 {
                 let core_name = core_opts.v2.as_ref()
-                    .and_then(|v2| v2.category.as_ref())
+                    .and_then(|v2| v2.categories.first())
                     .map(|c| &c.title)
                     .unwrap_or("Core");
                 self.init_menu(core_name, &defs.definitions);
