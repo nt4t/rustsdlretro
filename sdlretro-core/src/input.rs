@@ -37,6 +37,7 @@ fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
 
 pub struct InputReader {
     state: Arc<Mutex<[i32; 16]>>,
+    just_pressed: Arc<Mutex<[bool; 16]>>,
 }
 
 impl InputReader {
@@ -52,7 +53,10 @@ impl InputReader {
 
         let state: [i32; 16] = [0; 16];
         let state = Arc::new(Mutex::new(state));
+        let just_pressed: [bool; 16] = [false; 16];
+        let just_pressed = Arc::new(Mutex::new(just_pressed));
         let state_clone = state.clone();
+        let just_pressed_clone = just_pressed.clone();
 
         std::thread::spawn(move || {
             loop {
@@ -63,12 +67,16 @@ impl InputReader {
                                 if let Some(joypad_id) = keycode_to_joypad(event.code()) {
                                     let mut s = state_clone.lock().unwrap();
                                     s[joypad_id as usize] = 1;
+                                    let mut jp = just_pressed_clone.lock().unwrap();
+                                    jp[joypad_id as usize] = true;
                                     eprintln!("Input: pressed code={} joypad={}", event.code(), joypad_id);
                                 }
                             } else if event.value() == 0 {
                                 if let Some(joypad_id) = keycode_to_joypad(event.code()) {
                                     let mut s = state_clone.lock().unwrap();
                                     s[joypad_id as usize] = 0;
+                                    let mut jp = just_pressed_clone.lock().unwrap();
+                                    jp[joypad_id as usize] = false;
                                     eprintln!("Input: released code={} joypad={}", event.code(), joypad_id);
                                 }
                             }
@@ -83,7 +91,7 @@ impl InputReader {
             }
         });
 
-        Ok(InputReader { state })
+        Ok(InputReader { state, just_pressed })
     }
 
     pub fn get_state(&self, _port: u32, _device: u32, _index: u32, id: u32) -> i16 {
@@ -132,5 +140,18 @@ impl InputReader {
     /// Check if Tab key is pressed
     pub fn is_tab_pressed(&self) -> bool {
         self.check_keycodes(&[15])
+    }
+
+    /// Check if a key was just pressed (edge detection, clears after check)
+    pub fn was_key_just_pressed(&self, keycode: u16) -> bool {
+        if let Some(joypad_id) = keycode_to_joypad(keycode) {
+            let mut jp = self.just_pressed.lock().unwrap();
+            let was_pressed = jp[joypad_id as usize];
+            if was_pressed {
+                jp[joypad_id as usize] = false;
+            }
+            return was_pressed;
+        }
+        false
     }
 }

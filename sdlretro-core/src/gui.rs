@@ -220,7 +220,7 @@ impl Gui {
     pub fn handle_input(&mut self, input: &InputReader, fb_height: u32) -> GuiState {
         if self.state == GuiState::Playing {
             // Check for F1 to open menu
-            if input.is_key_pressed(59) {
+            if input.was_key_just_pressed(59) {
                 self.toggle_menu();
             }
             return self.state.clone();
@@ -265,7 +265,7 @@ impl Gui {
             }
 
             // F1 to close menu
-            if input.is_key_pressed(59) {
+            if input.was_key_just_pressed(59) {
                 self.state = GuiState::Playing;
             }
         }
