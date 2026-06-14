@@ -243,9 +243,9 @@ impl Gui {
     /// Handle input and return new state
     pub fn handle_input(&mut self, input: &InputReader, fb_height: u32) -> GuiState {
         if self.state == GuiState::Playing {
-            // Check for F1 to open menu
-            let f1_pressed = input.was_key_just_pressed(59);
-            if f1_pressed {
+            // Check for ESC to open menu
+            let esc_pressed = input.was_key_just_pressed(1);
+            if esc_pressed {
                 self.toggle_menu();
                 self.try_init_menu_from_global();
             }
@@ -290,8 +290,8 @@ impl Gui {
                 menu.cycle_next();
             }
 
-            // F1 to close menu
-            if input.was_key_just_pressed(59) {
+            // ESC to close menu
+            if input.was_key_just_pressed(1) {
                 self.state = GuiState::Playing;
             }
         }
@@ -310,7 +310,7 @@ impl Gui {
             None => {
                 let overlay_y = 50;
                 video.draw_text_overlay(20, overlay_y, b"Core options not available", 0xFFFF00);
-                video.draw_text_overlay(20, overlay_y + 20, b"Press F1 to close", 0x888888);
+                video.draw_text_overlay(20, overlay_y + 20, b"Press ESC to close", 0x888888);
                 return;
             }
         };
@@ -427,7 +427,7 @@ impl Gui {
 
         // Draw footer
         let footer_y = bg_y2 + 10;
-        let footer_text = format!("{} | Press F1 to close", self.rom_name);
+        let footer_text = format!("{} | Press ESC to close", self.rom_name);
         video.draw_text_overlay((w - footer_text.len() as i32 * 5) / 2, footer_y, footer_text.as_bytes(), 0x666666);
 
         // Draw settings hint if in settings mode
