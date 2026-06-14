@@ -173,14 +173,16 @@ fn main() {
 
     while RUNNING.load(Ordering::SeqCst) {
         // Handle GUI input
-        unsafe {
+        let menu_open = unsafe {
             if !sdlretro_core::video::MAIN_VIDEO.is_null() && !MAIN_INPUT.is_null() {
                 let v = &*(sdlretro_core::video::MAIN_VIDEO as *const sdlretro_core::video::FbdevVideo);
-                gui.handle_input(&*MAIN_INPUT, v.fb_height());
+                gui.handle_input(&*MAIN_INPUT, v.fb_height()) == sdlretro_core::gui::GuiState::MenuOpen
+            } else {
+                false
             }
-        }
+        };
 
-        if core.run().is_err() {
+        if !menu_open && core.run().is_err() {
             eprintln!("Failed to run frame");
             break;
         }
