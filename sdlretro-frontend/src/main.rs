@@ -39,14 +39,14 @@ extern "C" fn input_poll_cb() {
 
 extern "C" fn input_state_cb(port: u32, device: u32, index: u32, id: u32) -> i16 {
     unsafe {
-        if let Some(ref input) = MAIN_INPUT.as_ref() {
-            return input.get_state(port, device, index, id);
+        if !MAIN_INPUT.is_null() {
+            return (*MAIN_INPUT).get_state(port, device, index, id);
         }
         -1
     }
 }
 
-static mut MAIN_INPUT: Option<InputReader> = None;
+static mut MAIN_INPUT: *mut InputReader = std::ptr::null_mut();
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -95,7 +95,7 @@ fn main() {
 
     // Store video and input in statics for callbacks
     unsafe { sdlretro_core::video::MAIN_VIDEO = Box::into_raw(Box::new(video)) as *mut c_void; }
-    unsafe { MAIN_INPUT = Some(input); }
+    unsafe { MAIN_INPUT = Some(Box::into_raw(Box::new(input)) as *mut InputReader); }
 
     // Set input callbacks before loading ROM
     core.set_callbacks(
@@ -174,9 +174,9 @@ fn main() {
     while RUNNING.load(Ordering::SeqCst) {
         // Handle GUI input
         unsafe {
-            if !sdlretro_core::video::MAIN_VIDEO.is_null() {
+            if !sdlretro_core::video::MAIN_VIDEO.is_null() && !MAIN_INPUT.is_null() {
                 let v = &*(sdlretro_core::video::MAIN_VIDEO as *const sdlretro_core::video::FbdevVideo);
-                gui.handle_input(&input, v.fb_height());
+                gui.handle_input(&*MAIN_INPUT, v.fb_height());
             }
         }
 
@@ -245,6 +245,9 @@ fn main() {
         }
         if !sdlretro_core::video::MAIN_VIDEO.is_null() {
             let _ = Box::from_raw(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
+        }
+        if !MAIN_INPUT.is_null() {
+            let _ = Box::from_raw(MAIN_INPUT);
         }
     }
     core.unload();
