@@ -147,11 +147,13 @@ impl InputReader {
         if let Some(joypad_id) = keycode_to_joypad(keycode) {
             let mut jp = self.just_pressed.lock().unwrap();
             let was_pressed = jp[joypad_id as usize];
+            eprintln!("was_key_just_pressed: keycode={} joypad={} was_pressed={}", keycode, joypad_id, was_pressed);
             if was_pressed {
                 jp[joypad_id as usize] = false;
             }
             return was_pressed;
         }
+        eprintln!("was_key_just_pressed: keycode={} not mapped", keycode);
         false
     }
 }
