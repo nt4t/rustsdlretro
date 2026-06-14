@@ -142,22 +142,16 @@ impl InputReader {
         self.check_keycodes(&[15])
     }
 
-    /// Check if a key was just pressed (edge detection, clears after check)
+   /// Check if a key was just pressed (edge detection, clears after check)
     pub fn was_key_just_pressed(&self, keycode: u16) -> bool {
-        eprintln!("DEBUG was_key_just_pressed called with keycode={}", keycode);
         if let Some(joypad_id) = keycode_to_joypad(keycode) {
             let mut jp = self.just_pressed.lock().unwrap();
             let was_pressed = jp[joypad_id as usize];
-            eprintln!("DEBUG was_key_just_pressed: keycode={} joypad={} just_pressed[{}]={}", keycode, joypad_id, joypad_id, was_pressed);
             if was_pressed {
                 jp[joypad_id as usize] = false;
-                eprintln!("DEBUG was_key_just_pressed: returning true, cleared flag");
-            } else {
-                eprintln!("DEBUG was_key_just_pressed: returning false");
             }
             return was_pressed;
         }
-        eprintln!("DEBUG was_key_just_pressed: keycode={} not mapped by keycode_to_joypad", keycode);
         false
     }
 }

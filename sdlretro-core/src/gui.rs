@@ -236,15 +236,12 @@ impl Gui {
 
     /// Handle input and return new state
     pub fn handle_input(&mut self, input: &InputReader, fb_height: u32) -> GuiState {
-        eprintln!("DEBUG handle_input: current state={:?}", self.state);
         if self.state == GuiState::Playing {
             // Check for F1 to open menu
             let f1_pressed = input.was_key_just_pressed(59);
-            eprintln!("DEBUG handle_input: f1_pressed={}, about to toggle_menu", f1_pressed);
             if f1_pressed {
                 self.toggle_menu();
                 self.try_init_menu_from_global();
-                eprintln!("DEBUG handle_input: after toggle_menu, state={:?}, menu={:?}", self.state, if self.menu.is_some() { "some" } else { "none" });
             }
             return self.state.clone();
         }
@@ -297,18 +294,14 @@ impl Gui {
     }
 
     /// Render the GUI overlay on the framebuffer
-    pub fn render(&self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
-        eprintln!("DEBUG render: state={:?}, menu={:?}", self.state, if self.menu.is_some() { "some" } else { "none" });
+   pub fn render(&self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
         if self.state == GuiState::Playing {
             return;
         }
 
         let menu = match &self.menu {
             Some(m) => m,
-            None => {
-                eprintln!("DEBUG render: menu is none, returning");
-                return;
-            }
+            None => return,
         };
 
         let w = fb_width as i32;
