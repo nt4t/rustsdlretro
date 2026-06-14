@@ -95,7 +95,7 @@ fn main() {
 
     // Store video and input in statics for callbacks
     unsafe { sdlretro_core::video::MAIN_VIDEO = Box::into_raw(Box::new(video)) as *mut c_void; }
-    unsafe { MAIN_INPUT = Some(Box::into_raw(Box::new(input)) as *mut InputReader); }
+    unsafe { MAIN_INPUT = Box::into_raw(Box::new(input)); }
 
     // Set input callbacks before loading ROM
     core.set_callbacks(
