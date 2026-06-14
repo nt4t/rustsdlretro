@@ -193,13 +193,8 @@ impl Gui {
     /// Toggle menu open/close
     pub fn toggle_menu(&mut self) {
         self.state = match self.state {
-            GuiState::Playing => {
-                // Load core options into menu
-                self.state = GuiState::MenuOpen;
-            }
-            GuiState::MenuOpen | GuiState::Settings => {
-                self.state = GuiState::Playing;
-            }
+            GuiState::Playing => GuiState::MenuOpen,
+            GuiState::MenuOpen | GuiState::Settings => GuiState::Playing,
         };
     }
 
@@ -327,12 +322,12 @@ impl Gui {
         }
 
         // Draw menu items
-        for i in menu.scroll_offset..menu.items.len() {
-            if i - menu.scroll_offset >= visible_count {
+        for i in (menu.scroll_offset as i32)..(menu.items.len() as i32) {
+            if i - (menu.scroll_offset as i32) >= visible_count as i32 {
                 break;
             }
 
-            let item_y = start_y + (i - menu.scroll_offset) * item_height;
+            let item_y = start_y + (i - (menu.scroll_offset as i32)) * item_height;
             let item_x = bg_x1 + 15;
 
             let is_selected = i == menu.selected;
@@ -345,7 +340,7 @@ impl Gui {
                         video.draw_text_overlay(item_x, item_y, label.as_bytes(), 0xCCCCCC);
                     }
                 }
-                MenuItem::OptionItem { label, values, current_index, info } => {
+                MenuItem::OptionItem { label, values, current_index, info, .. } => {
                     // Draw label
                     let label_color = if is_selected { 0xFFFF00 } else { 0xCCCCCC };
                     video.draw_text_overlay(item_x, item_y, label.as_bytes(), label_color);
@@ -423,7 +418,8 @@ fn wrap_text(text: &str, max_chars: i32) -> Vec<String> {
     let mut word_start = 0;
     let chars: Vec<char> = text.chars().collect();
 
-    for i in 0..chars.len() {
+    let mut i = 0;
+    while i < chars.len() {
         if current.len() as i32 >= max_chars {
             lines.push(current.clone());
             current.clear();
@@ -432,10 +428,11 @@ fn wrap_text(text: &str, max_chars: i32) -> Vec<String> {
             while word_start < chars.len() && chars[word_start].is_whitespace() {
                 word_start += 1;
             }
-            i = word_start - 1; // Will be incremented below
+            i = word_start;
             continue;
         }
         current.push(chars[i]);
+        i += 1;
     }
 
     if !current.is_empty() {

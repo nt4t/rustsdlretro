@@ -78,7 +78,7 @@ impl CoreOptions {
         self.definitions()?.iter().find(|opt| opt.key == key).and_then(|opt| {
             opt.values.iter().find(|v| {
                 if let Some(ref default) = opt.default_value {
-                    v.value == default
+                    v.value == *default
                 } else {
                     false
                 }

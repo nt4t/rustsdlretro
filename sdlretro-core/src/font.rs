@@ -475,7 +475,7 @@ pub unsafe fn draw_char_big(
                    glyph_idx, glyphs, font_data, font_h);
 }
 
-fn draw_char_impl(
+unsafe fn draw_char_impl(
     fb_ptr: *mut u8,
     fb_pitch: u32,
     fb_bpp: u32,
