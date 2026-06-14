@@ -500,6 +500,10 @@ unsafe fn draw_char_impl(
     
     // Bytes per row (rounded up)
     let step = (w + 7) >> 3;
+    if fd.data_offset >= font_data.len() {
+        eprintln!("Font: data_offset {} >= font_data.len() {}, skipping glyph", fd.data_offset, font_data.len());
+        return;
+    }
     let glyph_data = &font_data[fd.data_offset..];
     
     for py in 0..h {
