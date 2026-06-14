@@ -219,17 +219,23 @@ impl Gui {
     /// Try to initialize menu from global core options (returns true if initialized)
     pub fn try_init_menu_from_global(&mut self) -> bool {
         if self.menu.is_some() {
+            eprintln!("GUI: menu already initialized");
             return true;
         }
-        if let Some(core_opts) = crate::get_core_options_raw() {
-            if let Some(ref defs) = core_opts.v1 {
-                let core_name = core_opts.v2.as_ref()
-                    .and_then(|v2| v2.categories.first())
-                    .map(|c| c.desc.as_str())
-                    .unwrap_or("Core");
-                self.init_menu(core_name, &defs.definitions);
-                return true;
+        match crate::get_core_options_raw() {
+            Some(core_opts) => {
+                eprintln!("GUI: got core_opts, v1={:?}, v2={:?}", core_opts.v1.is_some(), core_opts.v2.is_some());
+                if let Some(ref defs) = core_opts.v1 {
+                    eprintln!("GUI: using v1 with {} definitions", defs.definitions.len());
+                    let core_name = core_opts.v2.as_ref()
+                        .and_then(|v2| v2.categories.first())
+                        .map(|c| c.desc.as_str())
+                        .unwrap_or("Core");
+                    self.init_menu(core_name, &defs.definitions);
+                    return true;
+                }
             }
+            None => eprintln!("GUI: core_opts is None"),
         }
         false
     }
