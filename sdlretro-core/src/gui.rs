@@ -300,14 +300,19 @@ impl Gui {
     }
 
     /// Render the GUI overlay on the framebuffer
-   pub fn render(&self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
+ pub fn render(&self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
         if self.state == GuiState::Playing {
             return;
         }
 
         let menu = match &self.menu {
             Some(m) => m,
-            None => return,
+            None => {
+                let overlay_y = 50;
+                video.draw_text_overlay(20, overlay_y, b"Core options not available", 0xFFFF00);
+                video.draw_text_overlay(20, overlay_y + 20, b"Press F1 to close", 0x888888);
+                return;
+            }
         };
 
         let w = fb_width as i32;
