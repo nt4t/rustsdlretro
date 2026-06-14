@@ -219,8 +219,8 @@ impl Gui {
     /// Handle input and return new state
     pub fn handle_input(&mut self, input: &InputReader, fb_height: u32) -> GuiState {
         if self.state == GuiState::Playing {
-            // Check for ESC to open menu
-            if input.is_key_pressed(1) {
+            // Check for F1 to open menu
+            if input.is_key_pressed(59) {
                 self.toggle_menu();
             }
             return self.state.clone();
@@ -264,8 +264,8 @@ impl Gui {
                 menu.cycle_next();
             }
 
-            // ESC to close menu
-            if input.is_key_pressed(1) {
+            // F1 to close menu
+            if input.is_key_pressed(59) {
                 self.state = GuiState::Playing;
             }
         }
@@ -396,7 +396,7 @@ impl Gui {
 
         // Draw footer
         let footer_y = bg_y2 + 10;
-        let footer_text = format!("{} | Press ESC to close", self.rom_name);
+        let footer_text = format!("{} | Press F1 to close", self.rom_name);
         video.draw_text_overlay((w - footer_text.len() as i32 * 5) / 2, footer_y, footer_text.as_bytes(), 0x666666);
 
         // Draw settings hint if in settings mode
