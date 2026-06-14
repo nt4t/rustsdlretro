@@ -299,13 +299,15 @@ fn playback_thread_loop(
         let pcm_opt = pcm.lock().unwrap();
         if let Some(ref pcm_handle) = *pcm_opt {
             match pcm_handle.io_i16().and_then(|io| io.writei(&buffer[..read_count])) {
-                Ok(frames) => {
+                Ok(frames_written) => {
                     write_count += 1;
+                    let samples_written = frames_written * 2;
                     if write_count == 1 || write_count % 1000 == 0 {
-                        eprintln!("playback_thread: {} total ALSA writes, {} frames written this call", write_count, frames);
+                        eprintln!("playback_thread: {} total ALSA writes, {} frames ({} samples) written this call", write_count, frames_written, samples_written);
                     }
-                    if (frames as usize) < read_count {
-                        eprintln!("ALSA wrote fewer frames than requested: {} vs {}", frames, read_count);
+                    if samples_written < read_count {
+                        let samples_requested = read_count;
+                        eprintln!("ALSA wrote fewer samples than requested: {} vs {} (frames: {} vs {})", samples_written, samples_requested, frames_written, read_count / 2);
                     }
                 }
                 Err(e) => {
