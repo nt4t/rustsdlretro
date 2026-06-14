@@ -3,6 +3,8 @@ use std::ptr;
 
 use std::ffi::CString;
 
+use crate::font;
+
 // ioctl constants for fbdev
 const FBIOGET_FSCREENINFO: c_uint = 0x4602;
 const FBIOGET_VSCREENINFO: c_uint = 0x4600;
@@ -259,6 +261,56 @@ impl FbdevVideo {
     pub fn set_skip_frame(&mut self) {
         self.skip_frame = true;
         self.frame_drawn = false;
+    }
+
+    pub fn draw_pixel_overlay(&mut self, x: i32, y: i32, color: u32) {
+        if x < 0 || y < 0 || x as u32 >= self.fb_width || y as u32 >= self.fb_height {
+            return;
+        }
+        unsafe {
+            font::write_pixel(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, color);
+        }
+    }
+
+    pub fn draw_rect_overlay(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32) {
+        let x1 = x1.max(0).min(self.fb_width as i32);
+        let y1 = y1.max(0).min(self.fb_height as i32);
+        let x2 = x2.max(0).min(self.fb_width as i32);
+        let y2 = y2.max(0).min(self.fb_height as i32);
+        if x1 >= x2 || y1 >= y2 {
+            return;
+        }
+        for y in y1..y2 {
+            for x in x1..x2 {
+                unsafe {
+                    font::write_pixel(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, color);
+                }
+            }
+        }
+    }
+
+    pub fn draw_text_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32) {
+        unsafe {
+            font::draw_text(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, text, color);
+        }
+    }
+
+    pub fn draw_text_big_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32) {
+        unsafe {
+            font::draw_text_big(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, text, color);
+        }
+    }
+
+    pub fn draw_char_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32) {
+        unsafe {
+            font::draw_char(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, ch, color, 0x000000, true);
+        }
+    }
+
+    pub fn draw_char_big_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32) {
+        unsafe {
+            font::draw_char_big(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, ch, color, 0x000000, true);
+        }
     }
 
     pub fn frame_drawn(&self) -> bool {

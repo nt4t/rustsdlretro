@@ -93,4 +93,54 @@ impl InputReader {
             -1
         }
     }
+
+    /// Check if a specific Linux input keycode is currently pressed
+    pub fn is_key_pressed(&self, keycode: u16) -> bool {
+        // Map Linux input keycodes to joypad indices
+        match keycode {
+            1 => true,  // ESC - not mapped to joypad, check directly
+            12 => self.is_key_pressed_impl(105, 30, 14),     // Left arrow
+            14 => self.is_key_pressed_impl(103, 25, 17),     // Up arrow
+            15 => self.is_key_pressed_impl(106, 32, 15),     // Right arrow
+            17 => self.is_key_pressed_impl(108, 16, 31),     // Down arrow
+            28 => self.is_key_pressed_impl(28),              // Enter
+            42 => self.is_key_pressed_impl(42),              // Left Shift
+            54 => self.is_key_pressed_impl(54),              // Right Shift
+            57 => self.is_key_pressed_impl(57),              // Space
+            15 => self.is_key_pressed_impl(15),              // Tab
+            _ => false,
+        }
+    }
+
+    fn is_key_pressed_impl(&self, codes: &[u16]) -> bool {
+        for &code in codes {
+            if let Some(joypad_id) = keycode_to_joypad(code) {
+                let s = self.state.lock().unwrap();
+                if joypad_id as usize < s.len() && s[joypad_id as usize] == 1 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn is_key_pressed_impl(&self, code: u16) -> bool {
+        if let Some(joypad_id) = keycode_to_joypad(code) {
+            let s = self.state.lock().unwrap();
+            if joypad_id as usize < s.len() && s[joypad_id as usize] == 1 {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if Shift key is pressed (left or right)
+    pub fn is_shift_pressed(&self) -> bool {
+        self.is_key_pressed_impl(&[42, 54])
+    }
+
+    /// Check if Tab key is pressed
+    pub fn is_tab_pressed(&self) -> bool {
+        self.is_key_pressed_impl(&[15])
+    }
 }

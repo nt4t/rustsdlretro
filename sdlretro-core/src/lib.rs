@@ -12,6 +12,9 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 pub mod video;
 pub mod input;
 pub mod audio;
+pub mod font;
+pub mod core_options;
+pub mod gui;
 
 pub struct ResolutionState {
     pub width: u32,
@@ -96,6 +99,8 @@ extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
     eprintln!("[beetle] {}", msg);
 }
 
+static mut CORE_OPTIONS: Option<core_options::CoreOptions> = None;
+
 extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
     if key == 31 {
         let log_info = data as *mut retro_log_callback;
@@ -127,6 +132,79 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
     }
     if key == 13 {
         eprintln!("Core requested system directory");
+        return true;
+    }
+    if key == 52 {
+        let version = data as *mut u32;
+        if !version.is_null() {
+            unsafe {
+                *version = core_options::V2_API_VERSION;
+                eprintln!("Core options API version: {}", *version);
+            }
+        }
+        return true;
+    }
+    if key == 53 {
+        let defs = data as *mut retro_core_option_definition;
+        if !defs.is_null() {
+            unsafe {
+                let definitions = core_options::parse_v1_definitions(defs);
+                eprintln!("Core options (v1): {} options loaded", definitions.len());
+                for def in &definitions {
+                    eprintln!("  Option: {} = {}", def.key, def.desc);
+                    if !def.values.is_empty() {
+                        eprintln!("    Values: {:?}", def.values.iter().map(|v| &v.value).collect::<Vec<_>>());
+                    }
+                    if let Some(ref default) = def.default_value {
+                        eprintln!("    Default: {}", default);
+                    }
+                }
+                CORE_OPTIONS = Some(core_options::CoreOptions {
+                    supports_v2: false,
+                    v2: None,
+                    v1: Some(core_options::CoreOptionsV1 { definitions }),
+                });
+            }
+        }
+        return true;
+    }
+    if key == 67 {
+        let v2_opts = data;
+        if !v2_opts.is_null() {
+            unsafe {
+                let v2_ptr = v2_opts as *mut bindings::retro_core_options_v2;
+                if !v2_ptr.is_null() {
+                    let definitions = core_options::parse_v2_definitions((*v2_ptr).definitions);
+                    eprintln!("Core options (v2): {} options loaded", definitions.len());
+                    for def in &definitions {
+                        eprintln!("  Option: {} = {}", def.key, def.desc);
+                        if !def.values.is_empty() {
+                            eprintln!("    Values: {:?}", def.values.iter().map(|v| &v.value).collect::<Vec<_>>());
+                        }
+                    }
+                    CORE_OPTIONS = Some(core_options::CoreOptions {
+                        supports_v2: true,
+                        v2: Some(core_options::CoreOptionsV2 {
+                            categories: Vec::new(),
+                            definitions,
+                        }),
+                        v1: None,
+                    });
+                }
+            }
+        }
+        return true;
+    }
+    if key == 55 {
+        let display = data as *mut bindings::retro_core_option_display;
+        if !display.is_null() {
+            unsafe {
+                let key_ptr = (*display).key;
+                let visible = (*display).visible;
+                let key = CStr::from_ptr(key_ptr).to_string_lossy().into_owned();
+                eprintln!("Core option display: {} visible={}", key, visible);
+            }
+        }
         return true;
     }
     if key == 32 || key == 37 {
@@ -320,6 +398,10 @@ impl Core {
 
     pub fn get_resolution_state(&self) -> Arc<Mutex<ResolutionState>> {
         Arc::clone(&self.resolution)
+    }
+
+    pub fn get_core_options(&self) -> Option<&core_options::CoreOptions> {
+        unsafe { CORE_OPTIONS.as_ref() }
     }
 
     pub fn init(&mut self) -> Result<(), CoreError> {
