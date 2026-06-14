@@ -1,6 +1,7 @@
 use sdlretro_core::Core;
 use sdlretro_core::video::FbdevVideo;
 use sdlretro_core::input::InputReader;
+use sdlretro_core::gui::Gui;
 use sdlretro_core::Throttle;
 use sdlretro_core::ResolutionState;
 use std::path::Path;
@@ -70,6 +71,9 @@ fn main() {
         Err(e) => { eprintln!("Failed to open input: {}", e); std::process::exit(1); }
     };
     eprintln!("Keyboard input ready");
+
+    eprintln!("Initializing GUI...");
+    let mut gui = Gui::new();
 
     eprintln!("Loading core: {}", core_path);
     let mut core = match Core::new(Path::new(core_path)) {
@@ -168,6 +172,14 @@ fn main() {
     let mut last_fps_frames: u64 = 0;
 
     while RUNNING.load(Ordering::SeqCst) {
+        // Handle GUI input
+        unsafe {
+            if !sdlretro_core::video::MAIN_VIDEO.is_null() {
+                let v = &*(sdlretro_core::video::MAIN_VIDEO as *const sdlretro_core::video::FbdevVideo);
+                gui.handle_input(&input, v.fb_height());
+            }
+        }
+
         if core.run().is_err() {
             eprintln!("Failed to run frame");
             break;
@@ -200,6 +212,14 @@ fn main() {
                     let v = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
                     v.set_skip_frame();
                 }
+            }
+        }
+
+        // Render GUI overlay
+        unsafe {
+            if !sdlretro_core::video::MAIN_VIDEO.is_null() {
+                let v = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
+                gui.render(v, v.fb_width(), v.fb_height());
             }
         }
 

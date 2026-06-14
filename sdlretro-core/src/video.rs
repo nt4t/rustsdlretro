@@ -332,6 +332,10 @@ impl FbdevVideo {
         self.fb_width
     }
 
+    pub fn fb_height(&self) -> u32 {
+        self.fb_height
+    }
+
     pub fn fb_bpp(&self) -> u32 {
         self.fb_bpp
     }
