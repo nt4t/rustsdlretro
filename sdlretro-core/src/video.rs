@@ -273,11 +273,13 @@ impl FbdevVideo {
     }
 
     pub fn draw_rect_overlay(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32) {
+        eprintln!("draw_rect_overlay: x1={} y1={} x2={} y2={} fb={}x{} ptr={:?}", x1, y1, x2, y2, self.fb_width, self.fb_height, self.fb_ptr as usize);
         let x1 = x1.max(0).min(self.fb_width as i32);
         let y1 = y1.max(0).min(self.fb_height as i32);
         let x2 = x2.max(0).min(self.fb_width as i32);
         let y2 = y2.max(0).min(self.fb_height as i32);
         if x1 >= x2 || y1 >= y2 {
+            eprintln!("draw_rect_overlay: early return x1>=x2 or y1>=y2");
             return;
         }
         for y in y1..y2 {
