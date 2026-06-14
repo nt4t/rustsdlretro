@@ -11,8 +11,8 @@ pub struct RingBuffer {
     count: usize,
 }
 
-const RING_BUFFER_CAPACITY: usize = 8192;
-const READ_BATCH_SIZE: usize = 1024;
+const RING_BUFFER_CAPACITY: usize = 65536;
+const READ_BATCH_SIZE: usize = 8192;
 
 impl RingBuffer {
     pub fn new() -> Self {
@@ -127,12 +127,7 @@ impl AudioDriver {
 
     pub fn push_batch(&self, data: &[i16]) {
         let mut rb = self.ring_buffer.lock().unwrap();
-        let before = rb.len();
-        let written = rb.write(data);
-        let after = rb.len();
-        if written > 0 {
-            eprintln!("push_batch: {} samples written, ring buffer: {} -> {} samples", written/2, before/2, after/2);
-        }
+        rb.write(data);
     }
 
     pub fn push_stereo_pair(&self, left: i16, right: i16) {
@@ -292,9 +287,7 @@ fn playback_thread_loop(
             continue;
         }
 
-        if read_count > 0 && (write_count == 0 || write_count % 100 == 0) {
-            eprintln!("playback_thread: read {} samples from ring buffer, writing to ALSA", read_count);
-        }
+        
 
         let pcm_opt = pcm.lock().unwrap();
         if let Some(ref pcm_handle) = *pcm_opt {
