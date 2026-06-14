@@ -76,11 +76,16 @@ impl AudioDriver {
         let stopped = Arc::new(AtomicBool::new(false));
         let pcm = Arc::new(Mutex::new(None));
 
-        let pcm_handle = alsa::pcm::PCM::new(
-            "default",
-            alsa::Direction::Playback,
-            true,
-        ).map_err(|e| format!("ALSA PCM open failed: {}", e))?;
+        let device_names = ["default", "plughw:0,0", "hw:0,0"];
+        let mut last_err = None;
+        let mut pcm_handle = None;
+        for dev_name in &device_names {
+            match alsa::pcm::PCM::new(dev_name, alsa::Direction::Playback, true) {
+                Ok(p) => { pcm_handle = Some(p); break; }
+                Err(e) => { last_err = Some(e); eprintln!("ALSA device '{}' open failed: {}", dev_name, e); }
+            }
+        }
+        let pcm_handle = pcm_handle.ok_or_else(|| format!("ALSA PCM open failed, tried {:?}, last error: {}", device_names, last_err.unwrap()))?;
 
         {
             let hw_params = alsa::pcm::HwParams::any(&pcm_handle)
@@ -307,10 +312,11 @@ fn playback_thread_loop(
                     drop(pcm_opt);
                     let mut pcm_guard = pcm.lock().unwrap();
                     if let Some(ref mut p) = *pcm_guard {
+                        eprintln!("ALSA write error: {}, recovering...", e);
+                        let _ = p.drain();
                         let _ = p.recover(e.errno(), true);
                         let _ = p.start();
                     }
-                    eprintln!("ALSA write error recovered: {}", e);
                 }
             }
         } else {

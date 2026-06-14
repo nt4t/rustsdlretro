@@ -221,6 +221,7 @@ fn main() {
             let audio = &mut *(sdlretro_core::MAIN_AUDIO as *mut sdlretro_core::audio::AudioDriver);
             audio.stop();
             let _ = Box::from_raw(sdlretro_core::MAIN_AUDIO as *mut sdlretro_core::audio::AudioDriver);
+            std::thread::sleep(std::time::Duration::from_millis(200));
         }
         if !sdlretro_core::video::MAIN_VIDEO.is_null() {
             let _ = Box::from_raw(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
