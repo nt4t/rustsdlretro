@@ -7,10 +7,13 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::ptr;
 
+use libc::c_void;
+
 use super::{
     retro_core_option_value, retro_core_option_definition, retro_core_option_v2_definition,
-    RETRO_NUM_CORE_OPTION_VALUES_MAX,
 };
+
+const RETRO_NUM_CORE_OPTION_VALUES_MAX: usize = 128;
 
 /// A single option value (key + display label)
 #[derive(Debug, Clone)]

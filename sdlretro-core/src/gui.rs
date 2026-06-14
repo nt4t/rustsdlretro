@@ -322,12 +322,12 @@ impl Gui {
         }
 
         // Draw menu items
-        for i in (menu.scroll_offset as i32)..(menu.items.len() as i32) {
-            if i - (menu.scroll_offset as i32) >= visible_count as i32 {
+        for i in menu.scroll_offset..menu.items.len() {
+            if (i as i32) - (menu.scroll_offset as i32) >= visible_count as i32 {
                 break;
             }
 
-            let item_y = start_y + (i - (menu.scroll_offset as i32)) * item_height;
+            let item_y = start_y + ((i as i32) - (menu.scroll_offset as i32)) * item_height;
             let item_x = bg_x1 + 15;
 
             let is_selected = i == menu.selected;
