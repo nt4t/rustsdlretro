@@ -288,7 +288,7 @@ impl Gui {
     }
 
     /// Initialize menu from old-style variables
-    fn init_menu_from_old_vars(&mut self, core_opts: &CoreOptions) {
+    fn init_menu_from_old_vars(&mut self, core_opts: &crate::core_options::CoreOptions) {
         let vars = core_opts.old_vars.clone();
         let keys = core_opts.old_variable_keys();
         if !vars.is_empty() {
