@@ -87,7 +87,7 @@ impl Menu {
     /// Get the number of items visible on screen
     pub fn visible_count(&self, fb_height: u32) -> usize {
         let available_height = fb_height as i32 - 40; // Reserve space for header/footer
-        let item_height = 24; // Big font height + padding
+        let item_height = 12; // Small font height + padding
         (available_height / item_height) as usize
     }
 
@@ -312,8 +312,8 @@ impl Gui {
                 let h = fb_height as i32;
                 video.draw_rect_overlay(10, 40, w - 10, 120, 0x000000);
                 let overlay_y = 60;
-                video.draw_text_big_overlay(20, overlay_y, b"Core options not available", 0xFFFF00);
-                 video.draw_text_big_overlay(20, overlay_y + 24, b"Press ESC to close", 0x888888);
+                video.draw_text_overlay(20, overlay_y, b"Core options not available", 0xFFFF00);
+                 video.draw_text_overlay(20, overlay_y + 12, b"Press ESC to close", 0x888888);
                 eprintln!("GUI: rendered fallback overlay");
                 return;
             }
@@ -341,19 +341,23 @@ impl Gui {
             video.draw_pixel_overlay(bg_x2 - 1, y, border_color);
         }
 
+        // Debug: show all lowercase letters
+        let debug_text = b"abcdefghijklmnopqrstuvwxyz";
+        video.draw_text_overlay(bg_x1 + 10, bg_y1 + 25, debug_text, 0x00FF00);
+
         // Draw header
         let header_y = bg_y1 + 10;
         let header_x = bg_x1 + 10;
-        video.draw_text_big_overlay(header_x, header_y, self.core_name.as_bytes(), 0xFFFFFF);
+        video.draw_text_overlay(header_x, header_y, self.core_name.as_bytes(), 0xFFFFFF);
 
         // Calculate visible items
         let visible_count = menu.visible_count(fb_height);
-        let item_height = 24;
+        let item_height = 12;
         let start_y = bg_y1 + 30;
 
         // Draw scroll indicator if needed
         if menu.scroll_offset > 0 {
-            video.draw_text_big_overlay(bg_x1 + bg_x2 - bg_x1 - 20, start_y, b"^", 0x888888);
+            video.draw_text_overlay(bg_x1 + bg_x2 - bg_x1 - 20, start_y, b"^", 0x888888);
         }
 
         // Draw menu items
@@ -372,31 +376,31 @@ impl Gui {
                     if *is_header {
                         // Already drawn core name above
                     } else {
-                        video.draw_text_big_overlay(item_x, item_y, label.as_bytes(), 0xCCCCCC);
+                        video.draw_text_overlay(item_x, item_y, label.as_bytes(), 0xCCCCCC);
                     }
                 }
                 MenuItem::OptionItem { label, values, current_index, info, .. } => {
                     // Draw label
                     let label_color = if is_selected { 0xFFFF00 } else { 0xCCCCCC };
-                    video.draw_text_big_overlay(item_x, item_y, label.as_bytes(), label_color);
+                    video.draw_text_overlay(item_x, item_y, label.as_bytes(), label_color);
 
                     // Draw current value
                     if let Some(current_value) = values.get(*current_index) {
                         let value_text = format!("[{}]", current_value);
                         let value_color = if is_selected { 0xFFFF00 } else { 0x888888 };
-                        let value_x = bg_x2 - 15 - value_text.len() as i32 * 10;
-                        video.draw_text_big_overlay(value_x as i32, item_y, value_text.as_bytes(), value_color);
+                        let value_x = bg_x2 - 15 - value_text.len() as i32 * 6;
+                        video.draw_text_overlay(value_x as i32, item_y, value_text.as_bytes(), value_color);
                     }
 
                     // Draw info text if selected and show_info is true
                     if is_selected && self.show_info {
                         if let Some(ref info_text) = info {
                             let max_width = bg_x2 - bg_x1 - 30;
-                            let wrapped = wrap_text(info_text, max_width / 10);
-                            let mut info_y = item_y + 20;
+                            let wrapped = wrap_text(info_text, max_width / 6);
+                            let mut info_y = item_y + 14;
                             for line in wrapped {
-                                video.draw_text_big_overlay(item_x, info_y, line.as_bytes(), 0x666666);
-                                info_y += 20;
+                                video.draw_text_overlay(item_x, info_y, line.as_bytes(), 0x666666);
+                                info_y += 12;
                                 if info_y >= bg_y2 - 20 {
                                     break;
                                 }
@@ -406,8 +410,8 @@ impl Gui {
 
                     // Draw arrow indicators
                     if is_selected && values.len() > 1 {
-                        video.draw_text_big_overlay(item_x - 14, item_y, b"<", 0xFFFF00);
-                        video.draw_text_big_overlay(item_x - 28, item_y, b">", 0xFFFF00);
+                        video.draw_text_overlay(item_x - 10, item_y, b"<", 0xFFFF00);
+                        video.draw_text_overlay(item_x - 20, item_y, b">", 0xFFFF00);
                     }
                 }
                 MenuItem::Separator => {
@@ -418,7 +422,7 @@ impl Gui {
                 }
                 MenuItem::Action { label } => {
                     let color = if is_selected { 0xFFFF00 } else { 0x888888 };
-                    video.draw_text_big_overlay(item_x, item_y, label.as_bytes(), color);
+                    video.draw_text_overlay(item_x, item_y, label.as_bytes(), color);
                 }
             }
         }
@@ -426,18 +430,18 @@ impl Gui {
         // Draw scroll down indicator
         if menu.scroll_offset + visible_count < menu.items.len() {
             let scroll_y = bg_y2 - 20;
-            video.draw_text_big_overlay(bg_x1 + bg_x2 - bg_x1 - 20, scroll_y, b"v", 0x888888);
+            video.draw_text_overlay(bg_x1 + bg_x2 - bg_x1 - 20, scroll_y, b"v", 0x888888);
         }
 
         // Draw footer
         let footer_y = bg_y2 + 10;
         let footer_text = format!("{} | Press ESC to close", self.rom_name);
-        video.draw_text_big_overlay((w - footer_text.len() as i32 * 10) / 2, footer_y, footer_text.as_bytes(), 0x666666);
+        video.draw_text_overlay((w - footer_text.len() as i32 * 5) / 2, footer_y, footer_text.as_bytes(), 0x666666);
 
         // Draw settings hint if in settings mode
         if self.state == GuiState::Settings {
             let hint = "Use < > or SPACE to change value";
-            video.draw_text_big_overlay((w - hint.len() as i32 * 10) / 2, footer_y + 24, hint.as_bytes(), 0xFFFF00);
+            video.draw_text_overlay((w - hint.len() as i32 * 5) / 2, footer_y + 12, hint.as_bytes(), 0xFFFF00);
         }
     }
 }
