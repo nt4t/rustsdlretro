@@ -341,11 +341,6 @@ impl Gui {
             video.draw_pixel_overlay(bg_x2 - 1, y, border_color);
         }
 
-        // Debug: show all lowercase letters
-        let debug_text = b"abcdefghijklmnopqrstuvwxyz";
-        video.draw_text_overlay(bg_x1 + 10, bg_y1 + 25, debug_text, 0xFFFFFF);
-        eprintln!("GUI: drew debug a-z at ({}, {})", bg_x1 + 10, bg_y1 + 25);
-
         // Draw header
         let header_y = bg_y1 + 10;
         let header_x = bg_x1 + 10;
