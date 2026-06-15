@@ -342,7 +342,9 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         }
         return true;
     }
-    eprintln!("ENV CB: unknown key={}", key);
+    static mut KEY_COUNT: u32 = 0;
+    unsafe { KEY_COUNT += 1; }
+    eprintln!("ENV CB #[{}] key={}", unsafe { KEY_COUNT }, key);
     false
 }
 
