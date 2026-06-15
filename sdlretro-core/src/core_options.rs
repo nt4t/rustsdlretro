@@ -51,6 +51,7 @@ pub struct CoreOptionsV2 {
 #[derive(Debug)]
 pub struct CoreOptionsV1 {
     pub definitions: Vec<CoreOptionDefinition>,
+    pub values: std::collections::HashMap<String, String>,
 }
 
 /// A single old-style variable option (SET_VARIABLES API)
@@ -75,6 +76,8 @@ pub struct CoreOptions {
     pub old_vars: Vec<OldVariable>,
     /// Current values for old-style variables (key -> value string)
     pub old_values: std::collections::HashMap<String, String>,
+    /// Current values for v2 options (key -> value string)
+    pub v2_values: std::collections::HashMap<String, String>,
 }
 
 impl CoreOptions {
@@ -89,7 +92,11 @@ impl CoreOptions {
 
     /// Get the current value for an option by key
     pub fn get_current_value(&self, key: &str) -> Option<String> {
-        // Check old-style variables first
+        // Check v2 values first
+        if let Some(val) = self.v2_values.get(key) {
+            return Some(val.clone());
+        }
+        // Check old-style variables
         if let Some(val) = self.old_values.get(key) {
             return Some(val.clone());
         }
@@ -108,6 +115,11 @@ impl CoreOptions {
     /// Set the current value for an old-style variable
     pub fn set_old_value(&mut self, key: &str, value: &str) {
         self.old_values.insert(key.to_string(), value.to_string());
+    }
+
+    /// Set the current value for a v2 option
+    pub fn set_v2_value(&mut self, key: &str, value: &str) {
+        self.v2_values.insert(key.to_string(), value.to_string());
     }
 
     /// Get all old-style variable keys

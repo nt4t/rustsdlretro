@@ -21,7 +21,9 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 | Phase 3: Audio | ✅ DONE | ALSA PCM output, ring buffer, playback thread, sample rate changes |
 | Throttle timing | ✅ DONE | clock_gettime(CLOCK_MONOTONIC), drift-correct, frame skip |
 | Cross-compile | ✅ DONE | thumbv7neon-unknown-linux-gnueabihf target configured |
-| Phase 4: UI System | 🔲 TODO | Menu overlay, core selector, ROM loader |
+| Font renderer | ✅ DONE | Bitmap font with embedded glyph data, shadow rendering, text measurement |
+| Core options | ✅ DONE | v1/v2 API support, runtime option changes via GET_VARIABLE_UPDATE |
+| Phase 4: UI System | ✅ DONE | Menu overlay with ESC toggle, option browsing, value cycling, debounce |
 | Phase 5: Full Integration | 🔲 TODO | Config, i18n, save states, ZIP ROM loading |
 | Phase 6: Hardening | 🔲 TODO | Performance, device testing, packaging |
 
@@ -36,15 +38,17 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **Dynamic resolution**: Handles SET_GEOMETRY and SET_SYSTEM_AV_INFO from core, updates letterboxing and throttle in real-time
 - **Audio**: ALSA PCM playback, ring buffer (8192 samples), background thread, sample rate changes via SET_SYSTEM_AV_INFO
 - **Cross-compile**: .cargo/config.toml for armv7 target
+- **Font renderer**: Embedded bitmap fonts (8px/16px tall), shadow rendering, text measurement, XRGB8888/RGB565 support
+- **Core options**: v1/v2 API support, SET_CORE_OPTIONS_V2_INTL, runtime option changes via GET_VARIABLE_UPDATE
+- **GUI overlay**: ESC toggle menu, option browsing, value cycling (left/right arrows/space), navigation debounce, fallback rendering
 
 ### Pending Features
 - **Audio**: ALSA PCM output with resampling (libsamplerate)
-- **UI**: Menu system, core selector, ROM browser
 - **Config**: sdlretro.json loader/writer
 - **Save states**: SRAM/RTC persistence
 - **ZIP ROM loading**: miniz_oxide extraction
-- **Core variables**: Options and preferences
 - **i18n**: Language file loading
+- **Core selector**: ROM browser with core matching
 
 ## Architecture
 
@@ -57,14 +61,17 @@ sdlretro/
 │
 ├── sdlretro-core/                # Libretro core management (FFI)
 │   ├── src/
-│   │   ├── lib.rs                # Core struct, ResolutionState, Throttle, FFI bindings
-│   │   ├── video.rs              # FbdevVideo: mmap fb0, pixel conversion, letterboxing
-│   │   └── input.rs              # InputReader: evdev polling thread, key mapping
+│   │   ├── lib.rs                # Core struct, ResolutionState, Throttle, FFI bindings, env callback
+│   │   ├── video.rs              # FbdevVideo: mmap fb0, pixel conversion, letterboxing, overlay helpers
+│   │   ├── input.rs              # InputReader: evdev polling thread, key mapping, menu helpers
+│   │   ├── font.rs               # Bitmap font renderer: glyph data, text rendering, shadow, measurement
+│   │   ├── core_options.rs       # Core options: v1/v2 FFI bindings, variable parsing, value storage
+│   │   └── gui.rs                # GUI overlay: menu state machine, navigation, rendering, input handling
 │   └── build.rs                  # bindgen invocation, copy libretro.h
 │
 ├── sdlretro-frontend/            # Binary crate: main entry point
 │   ├── src/
-│   │   └── main.rs               # CLI args, driver init, main loop, callbacks
+│   │   └── main.rs               # CLI args, driver init, main loop, GUI integration
 │   └── Cargo.toml
 │
 └── doc/
@@ -135,17 +142,44 @@ Currently handled in `log_environment_cb`:
 |-----|--------|--------|
 | 10 | `RETRO_ENVIRONMENT_SET_PIXEL_FORMAT` | ✅ Implemented - updates CORE_FORMAT.bpp |
 | 13 | `RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY` | ✅ Implemented - returns static path |
+| 15 | `RETRO_ENVIRONMENT_GET_VARIABLE` | ✅ Implemented - returns current option value from v2_values/old_values |
+| 16 | `RETRO_ENVIRONMENT_SET_VARIABLES` | ✅ Implemented - old-style variable parsing |
+| 17 | `RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE` | ✅ Implemented - returns VARIABLE_UPDATE_PENDING flag, reset after read |
 | 31 | `RETRO_ENVIRONMENT_GET_LOG_INTERFACE` | ✅ Implemented - registers log callback |
 | 32 | `RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO` | ✅ Implemented - updates resolution + fps |
 | 37 | `RETRO_ENVIRONMENT_SET_GEOMETRY` | ✅ Implemented - updates resolution, called from retro_run() |
+| 52 | `RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION` | ✅ Implemented - returns v2 API version |
+| 53 | `RETRO_ENVIRONMENT_SET_CORE_OPTIONS` | ✅ Implemented - v1 option definitions |
+| 55 | `RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY` | ✅ Implemented - visibility toggles |
+| 67 | `RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2` | ✅ Implemented - v2 option definitions |
+| 68 | `RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL` | ✅ Implemented - v2 with intl support |
 
 Future commands to implement:
-- `SET_VARIABLES`, `GET_VARIABLE`, `SET_CORE_OPTIONS`
 - `SET_HW_RENDER`, `GET_PREFERRED_HW_RENDER`
 - `SET_INPUT_DESCRIPTORS`
 - `GET_VFS_INTERFACE`
 - `SET_MESSAGE`, `SET_MESSAGE_EXT`
 - `SET_SERIALIZATION_QUIRKS`
+
+### Core Options Architecture
+
+Three-layer design matching the original C++ sdlretro:
+
+1. **libretro.h FFI** — `retro_core_option_value`, `retro_core_option_definition`, `retro_core_option_v2_definition`, `retro_variable`
+2. **core_options.rs** — `CoreOptions` struct with `v2_values` HashMap for runtime values, `get_current_value()` with fallback chain
+3. **Environment callback** — Handles keys 52/53/55/67/68 for option definitions, key 15 for GET_VARIABLE, key 17 for GET_VARIABLE_UPDATE
+
+**Runtime option changes flow**:
+```
+User changes option in GUI
+  → gui.rs sets core_opts.set_v2_value(key, value)
+  → gui.rs sets VARIABLE_UPDATE_PENDING = true
+  → Core polls GET_VARIABLE_UPDATE (key 17) → returns true
+  → Core calls GET_VARIABLE (key 15) → returns new value from v2_values
+  → Core's check_variables() applies the new setting
+```
+
+**Storage**: `CoreOptions.v2_values` HashMap (key → value string), populated during `retro_set_environment()` via SET_CORE_OPTIONS_V2_INTL, updated by GUI when user changes options.
 
 ### Graphics Driver (FBDEV)
 
@@ -258,16 +292,23 @@ if let Some(state) = RESOLUTION_STATE.get() {
 │                        Main Loop (main.rs)                  │
 │                                                             │
 │  while RUNNING.load() {                                     │
-│    1. core.run()                // retro_run()              │
+│    1. gui.handle_input()            // Menu input handling  │
+│       ├── ESC: toggle menu open/close                      │
+│       ├── arrows: navigate options                         │
+│       ├── left/right/space: cycle values                   │
+│       └── sets VARIABLE_UPDATE_PENDING when options change │
+│    2. if !menu_open: core.run()     // retro_run()          │
 │       ├── retro_input_poll_cb()  → input.poll()            │
 │       ├── retro_video_refresh_cb() → video.push_frame()    │
 │       ├── retro_audio_sample_cb()  → audio.push_stereo()   │
 │       ├── retro_audio_sample_batch_cb() → audio.push_batch │
 │       └── retro_input_state_cb()   → input.read_button()   │
-│    2. throttle.check_wait()       // Frame timing           │
+│    3. gui.render()                  // Overlay rendering    │
+│       └── draws menu on framebuffer if menu_open           │
+│    4. throttle.check_wait()           // Frame timing       │
 │       ├── usecs > 0 → sleep loop (re-check)                │
 │       └── usecs <= 0 → set_skip_frame() (frame skip)       │
-│    3. FPS counter (print every 5s)                          │
+│    5. FPS counter (print every 5s)                          │
 │  }                                                          │
 │  Exit: SIGINT → RUNNING.store(false)                        │
 └─────────────────────────────────────────────────────────────┘
@@ -281,7 +322,7 @@ if let Some(state) = RESOLUTION_STATE.get() {
 │  event0           │    │  push_frame()            │
 │                   │    │  pixel_convert()           │
 │  update Mutex     │    │  letterboxing            │
-│  InputState       │    │                          │
+│  InputState       │    │  overlay drawing         │
 └───────────────────┘    └──────────────────────────┘
 ```
 
@@ -379,9 +420,32 @@ resolver = "2"
 - ARM7 (thumbv7neon-unknown-linux-gnueabihf) target configured
 - `.cargo/config.toml` with arm-linux-gnueabihf-gcc linker
 
-### Phase 4: UI System 🔲 TODO
-- `sdlretro-gui` with Painter trait, bitmap font, menu state machine
-- In-game menu overlay, core selector, ROM loader
+### Phase 4: UI System ✅ DONE
+- **Font renderer** (`font.rs`): Embedded bitmap fonts (8px/16px tall, ASCII 0x20-0x7E), shadow rendering at (x+1, y-1), text measurement, XRGB8888/RGB565 format conversion
+- **Core options** (`core_options.rs`): v1/v2 API support, `retro_core_option_definition` parsing, `retro_core_option_v2_definition` with categories, old-style `retro_variable` parsing, `v2_values` HashMap for runtime values, `get_current_value()` with fallback chain (v2_values → old_values → defaults)
+- **GUI overlay** (`gui.rs`): `Gui` struct with `GuiState` enum (Playing/MenuOpen/Settings), `Menu` struct with navigation/scrolling/value cycling, ESC toggle (keycode 1), arrow keys for navigation, left/right arrows or space for value cycling, 15-frame debounce on value changes, fallback overlay when no core options available
+- **Runtime option changes**: `VARIABLE_UPDATE_PENDING` flag set when user changes options, returned by `GET_VARIABLE_UPDATE` handler (key 17), reset after core reads it — snes9x2010 detects changes via `check_variables()` and applies new settings
+
+### GUI Design
+```
+┌─────────────────────────────────────┐
+│  snes9x2010                         │  ← Header (core name)
+├─────────────────────────────────────┤
+│  ► Frame Skip: [1]                  │  ← Selected option (yellow highlight)
+│    Block Invalid VRAM: [disabled]   │
+│    Synchronous DSP: [false]         │
+│    ...                              │
+│  < v                                │  ← Scroll indicators
+├─────────────────────────────────────┤
+│  No ROM loaded | Press ESC to close │  ← Footer
+└─────────────────────────────────────┘
+```
+
+**Key interactions**:
+- ESC: Toggle menu open/close (edge detection via `was_key_just_pressed()`)
+- Up/Down arrows: Navigate options (debounced, requires key release)
+- Left/Right arrows or Space: Cycle option values (15-frame debounce ≈ 0.25s)
+- Enter: Confirm selection (for future action items)
 
 ### Phase 5: Full Integration 🔲 TODO
 - `sdlretro-frontend` binary tying everything together
@@ -410,3 +474,11 @@ resolver = "2"
 ### Device-Specific Testing
 - Raspberry Pi (ARM): Real hardware smoke test
 - x86_64 Linux: Full regression suite with framebuffer (tested: Genesis-Plus-GX/MUSHA dynamic resolution)
+
+### GUI Testing
+- ESC toggle: Menu opens/closes with edge detection (verified)
+- Navigation: Up/down arrows scroll options (verified)
+- Value cycling: Left/right arrows and space cycle option values (verified)
+- Runtime changes: snes9x2010 detects and applies option changes via GET_VARIABLE_UPDATE (verified)
+- Debounce: 15-frame delay prevents rapid value changes (verified)
+- Fallback overlay: Shows when core doesn't support core options (verified)

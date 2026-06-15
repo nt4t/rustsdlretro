@@ -100,9 +100,14 @@ extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
 }
 
 static mut CORE_OPTIONS: Option<core_options::CoreOptions> = None;
+static mut VARIABLE_UPDATE_PENDING: bool = false;
 
 pub fn get_core_options_raw() -> Option<&'static core_options::CoreOptions> {
     unsafe { CORE_OPTIONS.as_ref() }
+}
+
+pub fn get_core_options_raw_mut() -> Option<&'static mut core_options::CoreOptions> {
+    unsafe { CORE_OPTIONS.as_mut() }
 }
 
 extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
@@ -164,13 +169,14 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                         eprintln!("    Default: {}", default);
                     }
                 }
-                CORE_OPTIONS = Some(core_options::CoreOptions {
-                     supports_v2: false,
-                     v2: None,
-                     v1: Some(core_options::CoreOptionsV1 { definitions }),
-                     old_vars: Vec::new(),
-                     old_values: std::collections::HashMap::new(),
-                 });
+CORE_OPTIONS = Some(core_options::CoreOptions {
+                      supports_v2: false,
+                      v2: None,
+                      v1: Some(core_options::CoreOptionsV1 { definitions, values: std::collections::HashMap::new() }),
+                      old_vars: Vec::new(),
+                      old_values: std::collections::HashMap::new(),
+                      v2_values: std::collections::HashMap::new(),
+                  });
             }
         }
         return true;
@@ -192,16 +198,51 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                             eprintln!("    Values: {:?}", def.values.iter().map(|v| &v.value).collect::<Vec<_>>());
                         }
                     }
-                   CORE_OPTIONS = Some(core_options::CoreOptions {
-                         supports_v2: true,
-                         v2: Some(core_options::CoreOptionsV2 {
-                             categories: Vec::new(),
-                             definitions,
-                         }),
-                         v1: None,
-                         old_vars: Vec::new(),
-                         old_values: std::collections::HashMap::new(),
-                     });
+CORE_OPTIONS = Some(core_options::CoreOptions {
+                          supports_v2: true,
+                          v2: Some(core_options::CoreOptionsV2 {
+                              categories: Vec::new(),
+                              definitions,
+                          }),
+                          v1: None,
+                          old_vars: Vec::new(),
+                          old_values: std::collections::HashMap::new(),
+                          v2_values: std::collections::HashMap::new(),
+                      });
+                }
+            }
+        }
+        return true;
+    }
+    if key == 68 {
+        // SET_CORE_OPTIONS_V2_INTL
+        eprintln!("ENV CB: key 68 (SET_CORE_OPTIONS_V2_INTL) called");
+        let intl_opts = data;
+        if !intl_opts.is_null() {
+            unsafe {
+                let intl_ptr = intl_opts as *mut retro_core_options_v2_intl;
+                eprintln!("ENV CB: intl_ptr={:p}", intl_ptr);
+                if !intl_ptr.is_null() {
+                    let us_ptr = (*intl_ptr).us;
+                    eprintln!("ENV CB: us_ptr={:p}", us_ptr);
+                    if !us_ptr.is_null() {
+                        let definitions = core_options::parse_v2_definitions((*us_ptr).definitions);
+                        eprintln!("Core options (v2_intl): {} options loaded", definitions.len());
+                        for def in &definitions {
+                            eprintln!("  Option: {} = {}", def.key, def.desc);
+                        }
+                        CORE_OPTIONS = Some(core_options::CoreOptions {
+                            supports_v2: true,
+                            v2: Some(core_options::CoreOptionsV2 {
+                                categories: Vec::new(),
+                                definitions,
+                            }),
+                            v1: None,
+                            old_vars: Vec::new(),
+                            old_values: std::collections::HashMap::new(),
+                            v2_values: std::collections::HashMap::new(),
+                        });
+                    }
                 }
             }
         }
@@ -333,22 +374,42 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                 let key_ptr = (*var).key;
                 if !key_ptr.is_null() {
                     let key = CStr::from_ptr(key_ptr).to_string_lossy().into_owned();
-                    if let Some(ref core_opts) = CORE_OPTIONS {
-                        if let Some(current_val) = core_opts.get_current_value(&key) {
-                            let c_val = CString::new(current_val).unwrap();
-                            (*var).value = c_val.as_ptr();
-                            std::mem::forget(c_val);
-                            eprintln!("GET_VARIABLE: {} = {}", key, unsafe { std::ffi::CStr::from_ptr((*var).value).to_string_lossy() });
-                        }
+                    eprintln!("GET_VARIABLE called: {}", key);
+                    // Check v2_values first, then old_values, then defaults
+                    let current_val = if let Some(ref core_opts) = CORE_OPTIONS {
+                        core_opts.get_current_value(&key)
+                    } else {
+                        None
+                    };
+                    if let Some(ref val) = current_val {
+                        let c_val = CString::new(val.as_str()).unwrap();
+                        (*var).value = c_val.as_ptr();
+                        std::mem::forget(c_val);
+                        eprintln!("  returning: {}", val);
+                    } else {
+                        eprintln!("  no value found");
                     }
                 }
             }
         }
         return true;
     }
+    if key == 17 {
+        // GET_VARIABLE_UPDATE
+        let update = data as *mut bool;
+        if !update.is_null() {
+            unsafe {
+                *update = VARIABLE_UPDATE_PENDING;
+                VARIABLE_UPDATE_PENDING = false;
+                eprintln!("GET_VARIABLE_UPDATE: returning {}", *update);
+            }
+        }
+        return true;
+    }
     static mut KEY_COUNT: u32 = 0;
     unsafe { KEY_COUNT += 1; }
-    eprintln!("ENV CB #[{}] key={}", unsafe { KEY_COUNT }, key);
+    let count = unsafe { KEY_COUNT };
+    eprintln!("ENV CB #[{}] key={}", count, key);
     false
 }
 

@@ -173,6 +173,16 @@ impl Menu {
         matches!(self.items.get(self.selected), Some(MenuItem::OptionItem { values, .. }) if !values.is_empty())
     }
 
+    /// Get the current selected option's key and value
+    pub fn get_selected_value(&self) -> Option<(String, String)> {
+        if let Some(MenuItem::OptionItem { key, current_index, values, .. }) = self.items.get(self.selected) {
+            if let Some(value) = values.get(*current_index) {
+                return Some((key.clone(), value.clone()));
+            }
+        }
+        None
+    }
+
     /// Get the current value of the selected option
     pub fn get_current_value(&self) -> Option<&str> {
         match self.items.get(self.selected) {
@@ -200,6 +210,18 @@ pub struct Gui {
     rom_name: String,
     /// Whether to show the option description/info text
     show_info: bool,
+    /// Last navigation direction (for debounce)
+    last_nav_dir: i8,
+    /// Frame count when last navigation happened
+    last_nav_frame: u64,
+    /// Whether up/nav key was released since last action
+    nav_key_released: bool,
+    /// Frame count for value cycling debounce
+    last_value_frame: u64,
+    /// Current frame counter
+    frame_count: u64,
+    /// User-selected values (key -> value string)
+    selected_values: std::collections::HashMap<String, String>,
 }
 
 impl Gui {
@@ -211,6 +233,12 @@ impl Gui {
             core_name: String::from("RetroCore"),
             rom_name: String::from("No ROM"),
             show_info: false,
+            last_nav_dir: -1,
+            last_nav_frame: 0,
+            nav_key_released: true,
+             last_value_frame: 0,
+           frame_count: 0,
+            selected_values: std::collections::HashMap::new(),
         }
     }
 
@@ -303,6 +331,8 @@ impl Gui {
 
     /// Handle input and return new state
     pub fn handle_input(&mut self, input: &InputReader, fb_height: u32) -> GuiState {
+        self.frame_count += 1;
+        
         if self.state == GuiState::Playing {
             // Check for ESC to open menu
             let esc_pressed = input.was_key_just_pressed(1);
@@ -315,16 +345,28 @@ impl Gui {
 
         // Menu is open - handle navigation
         if let Some(ref mut menu) = self.menu {
-            // Up arrow
-            if input.is_key_pressed(14) {
-                menu.select_up();
-                self.show_info = false;
+            let up_pressed = input.is_key_pressed(14);
+            let down_pressed = input.is_key_pressed(17);
+            let left_pressed = input.is_key_pressed(12);
+            let right_pressed = input.is_key_pressed(15);
+
+            // Track key release for debounce
+            if !up_pressed && !down_pressed {
+                self.nav_key_released = true;
             }
 
-            // Down arrow
-            if input.is_key_pressed(17) {
+            // Up arrow (debounced)
+            if up_pressed && self.nav_key_released {
+                menu.select_up();
+                self.show_info = false;
+                self.nav_key_released = false;
+            }
+
+            // Down arrow (debounced)
+            if down_pressed && self.nav_key_released {
                 menu.select_down(fb_height);
                 self.show_info = false;
+                self.nav_key_released = false;
             }
 
             // Enter - select/confirm
@@ -336,19 +378,40 @@ impl Gui {
                 }
             }
 
-            // Right arrow - next value
-            if input.is_key_pressed(15) {
+            // Right arrow - next value (debounced, 15 frame delay)
+            if right_pressed && self.frame_count.wrapping_sub(self.last_value_frame) >= 15 {
                 menu.cycle_next();
+                if let Some((key, value)) = menu.get_selected_value() {
+                    if let Some(ref mut core_opts) = crate::get_core_options_raw_mut() {
+                        core_opts.set_v2_value(&key, &value);
+                    }
+                    unsafe { crate::VARIABLE_UPDATE_PENDING = true; }
+                }
+                self.last_value_frame = self.frame_count;
             }
 
-            // Left arrow - previous value
-            if input.is_key_pressed(12) {
+            // Left arrow - previous value (debounced, 15 frame delay)
+            if left_pressed && self.frame_count.wrapping_sub(self.last_value_frame) >= 15 {
                 menu.cycle_prev();
+                if let Some((key, value)) = menu.get_selected_value() {
+                    if let Some(ref mut core_opts) = crate::get_core_options_raw_mut() {
+                        core_opts.set_v2_value(&key, &value);
+                    }
+                    unsafe { crate::VARIABLE_UPDATE_PENDING = true; }
+                }
+                self.last_value_frame = self.frame_count;
             }
 
-            // Space to cycle value
-            if input.is_key_pressed(57) {
+            // Space to cycle value (debounced, 15 frame delay)
+            if input.is_key_pressed(57) && self.frame_count.wrapping_sub(self.last_value_frame) >= 15 {
                 menu.cycle_next();
+                if let Some((key, value)) = menu.get_selected_value() {
+                    if let Some(ref mut core_opts) = crate::get_core_options_raw_mut() {
+                        core_opts.set_v2_value(&key, &value);
+                    }
+                    unsafe { crate::VARIABLE_UPDATE_PENDING = true; }
+                }
+                self.last_value_frame = self.frame_count;
             }
 
             // ESC to close menu
