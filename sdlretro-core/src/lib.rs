@@ -485,14 +485,15 @@ impl Core {
     }
 
     pub fn init(&mut self) -> Result<(), CoreError> {
+        let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
+        unsafe { set_env(Some(log_environment_cb)) };
+        eprintln!("Environment callback registered");
+
         let get_info: RetroGetSystemInfoFn = unsafe { get_symbol!(self.handle, "retro_get_system_info", RetroGetSystemInfoFn) };
         let mut info = retro_system_info::default();
         unsafe { get_info(&mut info) };
         self.need_fullpath = info.need_fullpath;
         eprintln!("Core: {} need_fullpath={}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() }, self.need_fullpath);
-
-        let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
-        unsafe { set_env(Some(log_environment_cb)) };
 
         let init: RetroInitFn = unsafe { get_symbol!(self.handle, "retro_init", RetroInitFn) };
         unsafe { init() };
