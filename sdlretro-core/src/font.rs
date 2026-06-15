@@ -580,7 +580,7 @@ pub unsafe fn draw_text(
     let mut cx = x;
     for &ch in text {
         let fd = SMALL_FONT_GLYPHS[(ch as usize).min(127)];
-        draw_char(fb_ptr, fb_pitch, fb_bpp, cx, y, ch, color, 0x000000, true);
+        draw_char(fb_ptr, fb_pitch, fb_bpp, cx, y, ch, color, 0x000000, false);
         cx += fd.step_width;
     }
 }
@@ -598,7 +598,7 @@ pub unsafe fn draw_text_big(
     let mut cx = x;
     for &ch in text {
         let fd = BIG_FONT_GLYPHS[(ch as usize).min(127)];
-        draw_char_big(fb_ptr, fb_pitch, fb_bpp, cx, y, ch, color, 0x000000, true);
+        draw_char_big(fb_ptr, fb_pitch, fb_bpp, cx, y, ch, color, 0x000000, false);
         cx += fd.step_width;
     }
 }
