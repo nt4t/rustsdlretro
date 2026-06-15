@@ -18,10 +18,10 @@ const JOYPAD_RIGHT: c_int = 7;
 
 fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
     match keycode {
-        103 | 25 | 17 => Some(JOYPAD_UP),
-        108 | 16 | 31 => Some(JOYPAD_DOWN),
-        105 | 30 | 14 => Some(JOYPAD_LEFT),
-        106 | 32 | 15 => Some(JOYPAD_RIGHT),
+        103 | 17 => Some(JOYPAD_UP),
+        108 | 31 => Some(JOYPAD_DOWN),
+        105 | 30 => Some(JOYPAD_LEFT),
+        106 | 32 => Some(JOYPAD_RIGHT),
         40 => Some(JOYPAD_B),
         38 => Some(JOYPAD_A),
         46 => Some(JOYPAD_Y),
