@@ -273,7 +273,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
     }
     if key == 16 {
         // SET_VARIABLES - old-style core options
-        let vars = data as *mut super::retro_variable;
+        let vars = data as *mut retro_variable;
         if !vars.is_null() {
             unsafe {
                 let mut old_vars = Vec::new();
@@ -323,7 +323,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
     }
     if key == 15 {
         // GET_VARIABLE - get current value of an old-style variable
-        let var = data as *mut super::retro_variable;
+        let var = data as *mut retro_variable;
         if !var.is_null() {
             unsafe {
                 let key_ptr = (*var).key;
