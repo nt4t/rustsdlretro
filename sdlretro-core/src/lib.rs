@@ -334,7 +334,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                             let c_val = CString::new(current_val).unwrap();
                             (*var).value = c_val.as_ptr();
                             std::mem::forget(c_val);
-                            eprintln!("GET_VARIABLE: {} = {}", key, (*var).value as *const c_void);
+                            eprintln!("GET_VARIABLE: {} = {}", key, unsafe { std::ffi::CStr::from_ptr((*var).value).to_string_lossy() });
                         }
                     }
                 }

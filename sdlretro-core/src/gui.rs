@@ -46,7 +46,7 @@ pub struct Menu {
 
 impl Menu {
     /// Create a new menu from old-style variables
-    pub fn from_old_variables(title: &str, vars: &[core_options::OldVariable]) -> Self {
+    pub fn from_old_variables(title: &str, vars: &[crate::core_options::OldVariable]) -> Self {
         let mut items = Vec::new();
 
         items.push(MenuItem::Text {
@@ -288,7 +288,7 @@ impl Gui {
     }
 
     /// Initialize menu from old-style variables
-    fn init_menu_from_old_vars(&mut self, core_opts: &crate::core_options::CoreOptions) {
+    fn init_menu_from_old_vars(&mut self, core_opts: &CoreOptions) {
         let vars = core_opts.old_vars.clone();
         let keys = core_opts.old_variable_keys();
         if !vars.is_empty() {
