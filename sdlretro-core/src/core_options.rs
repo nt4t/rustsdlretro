@@ -53,6 +53,15 @@ pub struct CoreOptionsV1 {
     pub definitions: Vec<CoreOptionDefinition>,
 }
 
+/// A single old-style variable option (SET_VARIABLES API)
+#[derive(Debug, Clone)]
+pub struct OldVariable {
+    pub key: String,
+    pub title: String,
+    pub values: Vec<String>,
+    pub default_index: usize,
+}
+
 /// Parsed core options from the libretro core
 #[derive(Debug)]
 pub struct CoreOptions {
@@ -62,6 +71,10 @@ pub struct CoreOptions {
     pub v2: Option<CoreOptionsV2>,
     /// The v1 options (fallback)
     pub v1: Option<CoreOptionsV1>,
+    /// Old-style variables (SET_VARIABLES API)
+    pub old_vars: Vec<OldVariable>,
+    /// Current values for old-style variables (key -> value string)
+    pub old_values: std::collections::HashMap<String, String>,
 }
 
 impl CoreOptions {
@@ -76,8 +89,11 @@ impl CoreOptions {
 
     /// Get the current value for an option by key
     pub fn get_current_value(&self, key: &str) -> Option<String> {
-        // This would be populated from RETRO_ENVIRONMENT_GET_VARIABLE
-        // For now, returns the default value
+        // Check old-style variables first
+        if let Some(val) = self.old_values.get(key) {
+            return Some(val.clone());
+        }
+        // Then check v1/v2 definitions
         self.definitions()?.iter().find(|opt| opt.key == key).and_then(|opt| {
             opt.values.iter().find(|v| {
                 if let Some(ref default) = opt.default_value {
@@ -87,6 +103,39 @@ impl CoreOptions {
                 }
             }).map(|v| v.value.clone())
         })
+    }
+
+    /// Set the current value for an old-style variable
+    pub fn set_old_value(&mut self, key: &str, value: &str) {
+        self.old_values.insert(key.to_string(), value.to_string());
+    }
+
+    /// Get all old-style variable keys
+    pub fn old_variable_keys(&self) -> Vec<&str> {
+        self.old_vars.iter().map(|v| v.key.as_str()).collect()
+    }
+
+    /// Get an old-style variable by key
+    pub fn get_old_variable(&self, key: &str) -> Option<&OldVariable> {
+        self.old_vars.iter().find(|v| v.key == key)
+    }
+}
+
+/// Parse old-style variable string: "Title; default|option1|option2"
+pub fn parse_old_variable_string(value: &str) -> Option<(String, Vec<String>)> {
+    if let Some(semi_pos) = value.find(';') {
+        let title = value[..semi_pos].trim().to_string();
+        let rest = value[semi_pos + 1..].trim();
+        if rest.is_empty() {
+            return None;
+        }
+        let values: Vec<String> = rest.split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        if values.is_empty() {
+            return None;
+        }
+        Some((title, values))
+    } else {
+        None
     }
 }
 

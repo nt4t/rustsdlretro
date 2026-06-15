@@ -164,10 +164,12 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                     }
                 }
                 CORE_OPTIONS = Some(core_options::CoreOptions {
-                    supports_v2: false,
-                    v2: None,
-                    v1: Some(core_options::CoreOptionsV1 { definitions }),
-                });
+                     supports_v2: false,
+                     v2: None,
+                     v1: Some(core_options::CoreOptionsV1 { definitions }),
+                     old_vars: Vec::new(),
+                     old_values: std::collections::HashMap::new(),
+                 });
             }
         }
         return true;
@@ -186,14 +188,16 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                             eprintln!("    Values: {:?}", def.values.iter().map(|v| &v.value).collect::<Vec<_>>());
                         }
                     }
-                    CORE_OPTIONS = Some(core_options::CoreOptions {
-                        supports_v2: true,
-                        v2: Some(core_options::CoreOptionsV2 {
-                            categories: Vec::new(),
-                            definitions,
-                        }),
-                        v1: None,
-                    });
+                   CORE_OPTIONS = Some(core_options::CoreOptions {
+                         supports_v2: true,
+                         v2: Some(core_options::CoreOptionsV2 {
+                             categories: Vec::new(),
+                             definitions,
+                         }),
+                         v1: None,
+                         old_vars: Vec::new(),
+                         old_values: std::collections::HashMap::new(),
+                     });
                 }
             }
         }
@@ -260,6 +264,77 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
                         if new_sample_rate != audio.sample_rate {
                             eprintln!("Sample rate change requested: {} Hz", new_sample_rate);
                             audio.restart_with_rate(new_sample_rate);
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    if key == 16 {
+        // SET_VARIABLES - old-style core options
+        let vars = data as *mut super::retro_variable;
+        if !vars.is_null() {
+            unsafe {
+                let mut old_vars = Vec::new();
+                let mut i = 0;
+                loop {
+                    let var = vars.add(i);
+                    let key_ptr = (*var).key;
+                    let value_ptr = (*var).value;
+                    if key_ptr.is_null() {
+                        break;
+                    }
+                    let key = CStr::from_ptr(key_ptr).to_string_lossy().into_owned();
+                    if value_ptr.is_null() {
+                        i += 1;
+                        continue;
+                    }
+                    let value = CStr::from_ptr(value_ptr).to_string_lossy().into_owned();
+                    if let Some((title, values)) = core_options::parse_old_variable_string(&value) {
+                        let default_index = values.iter().position(|v| v == &values[0]).unwrap_or(0);
+                        eprintln!("  Old var: {} = {} (values: {:?})", key, title, values);
+                        old_vars.push(core_options::OldVariable {
+                            key: key.clone(),
+                            title,
+                            values: values.clone(),
+                            default_index,
+                        });
+                        // Set initial value to default
+                        if let Some(ref mut core_opts) = CORE_OPTIONS {
+                            core_opts.set_old_value(&key, &values[0]);
+                        }
+                    }
+                    i += 1;
+                    if i > 256 {
+                        break;
+                    }
+                }
+                if !old_vars.is_empty() {
+                    if let Some(ref mut core_opts) = CORE_OPTIONS {
+                        core_opts.old_vars = old_vars;
+                    } else {
+                        eprintln!("Old variables: {} options (no CORE_OPTIONS yet)", old_vars.len());
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    if key == 15 {
+        // GET_VARIABLE - get current value of an old-style variable
+        let var = data as *mut super::retro_variable;
+        if !var.is_null() {
+            unsafe {
+                let key_ptr = (*var).key;
+                if !key_ptr.is_null() {
+                    let key = CStr::from_ptr(key_ptr).to_string_lossy().into_owned();
+                    if let Some(ref core_opts) = CORE_OPTIONS {
+                        if let Some(current_val) = core_opts.get_current_value(&key) {
+                            let c_val = CString::new(current_val).unwrap();
+                            (*var).value = c_val.as_ptr();
+                            std::mem::forget(c_val);
+                            eprintln!("GET_VARIABLE: {} = {}", key, (*var).value as *const c_void);
                         }
                     }
                 }

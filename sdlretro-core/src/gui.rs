@@ -45,6 +45,40 @@ pub struct Menu {
 }
 
 impl Menu {
+    /// Create a new menu from old-style variables
+    pub fn from_old_variables(title: &str, vars: &[core_options::OldVariable]) -> Self {
+        let mut items = Vec::new();
+
+        items.push(MenuItem::Text {
+            label: title.to_string(),
+            is_header: true,
+        });
+
+        items.push(MenuItem::Separator);
+
+        for var in vars {
+            items.push(MenuItem::OptionItem {
+                key: var.key.clone(),
+                label: var.title.clone(),
+                values: var.values.clone(),
+                current_index: var.default_index,
+                info: None,
+            });
+        }
+
+        items.push(MenuItem::Separator);
+        items.push(MenuItem::Action {
+            label: "Back".to_string(),
+        });
+
+        Self {
+            title: title.to_string(),
+            items,
+            selected: 0,
+            scroll_offset: 0,
+        }
+    }
+
     /// Create a new menu from core options
     pub fn from_core_options(title: &str, options: &[CoreOptionDefinition]) -> Self {
         let mut items = Vec::new();
@@ -224,7 +258,7 @@ impl Gui {
         }
         match crate::get_core_options_raw() {
             Some(core_opts) => {
-                eprintln!("GUI: got core_opts, v1={:?}, v2={:?}", core_opts.v1.is_some(), core_opts.v2.is_some());
+                eprintln!("GUI: got core_opts, v1={:?}, v2={:?}, old_vars={}", core_opts.v1.is_some(), core_opts.v2.is_some(), core_opts.old_vars.len());
                 if let Some(ref defs) = core_opts.v1 {
                     eprintln!("GUI: using v1 with {} definitions", defs.definitions.len());
                     let core_name = core_opts.v2.as_ref()
@@ -234,10 +268,37 @@ impl Gui {
                     self.init_menu(core_name, &defs.definitions);
                     return true;
                 }
+                if let Some(ref defs) = core_opts.v2 {
+                    eprintln!("GUI: using v2 with {} definitions", defs.definitions.len());
+                    let core_name = defs.categories.first()
+                        .map(|c| c.desc.as_str())
+                        .unwrap_or("Core");
+                    self.init_menu(core_name, &defs.definitions);
+                    return true;
+                }
+                if !core_opts.old_vars.is_empty() {
+                    eprintln!("GUI: using old vars with {} options", core_opts.old_vars.len());
+                    self.init_menu_from_old_vars(core_opts);
+                    return true;
+                }
             }
             None => {}
         }
         false
+    }
+
+    /// Initialize menu from old-style variables
+    fn init_menu_from_old_vars(&mut self, core_opts: &crate::core_options::CoreOptions) {
+        let vars = core_opts.old_vars.clone();
+        let keys = core_opts.old_variable_keys();
+        if !vars.is_empty() {
+            let menu = Menu::from_old_variables("Core Options", &vars);
+            self.menu = Some(menu);
+            if self.state == GuiState::Playing {
+                self.state = GuiState::MenuOpen;
+            }
+            eprintln!("GUI: initialized {} menu items from old vars", keys.len());
+        }
     }
 
     /// Handle input and return new state
