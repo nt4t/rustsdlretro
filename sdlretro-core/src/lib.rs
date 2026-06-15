@@ -139,11 +139,12 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         return true;
     }
     if key == 52 {
+        eprintln!("ENV CB: key 52 (GET_CORE_OPTIONS_VERSION) called");
         let version = data as *mut u32;
         if !version.is_null() {
             unsafe {
                 *version = core_options::V2_API_VERSION;
-                eprintln!("Core options API version: {}", *version);
+                eprintln!("ENV CB: returning version={}", *version);
             }
         }
         return true;
@@ -175,11 +176,14 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         return true;
     }
     if key == 67 {
+        eprintln!("ENV CB: key 67 (SET_CORE_OPTIONS_V2) called");
         let v2_opts = data;
         if !v2_opts.is_null() {
             unsafe {
                 let v2_ptr = v2_opts as *mut retro_core_options_v2;
+                eprintln!("ENV CB: v2_ptr={:p}", v2_ptr);
                 if !v2_ptr.is_null() {
+                    eprintln!("ENV CB: categories={:p}, definitions={:p}", (*v2_ptr).categories, (*v2_ptr).definitions);
                     let definitions = core_options::parse_v2_definitions((*v2_ptr).definitions);
                     eprintln!("Core options (v2): {} options loaded", definitions.len());
                     for def in &definitions {
