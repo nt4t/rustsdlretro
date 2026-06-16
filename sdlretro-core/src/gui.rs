@@ -532,10 +532,9 @@ impl Gui {
                         }
                     }
 
-                    // Draw arrow indicators
+                    // Draw arrow indicator
                     if is_selected && values.len() > 1 {
-                        video.draw_text_overlay(item_x - 10, item_y, b"<", 0xFFFF00);
-                        video.draw_text_overlay(item_x - 20, item_y, b">", 0xFFFF00);
+                        video.draw_text_overlay(item_x - 8, item_y, b">", 0xFFFF00);
                     }
                 }
                 MenuItem::Separator => {
