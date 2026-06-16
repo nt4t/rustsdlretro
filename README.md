@@ -17,7 +17,7 @@ Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emu
 
 ```
 rustsdlretro/
-├── sdlretro-core/          # Core library
+├── rustsdlretro-core/          # Core library
 │   ├── lib.rs              # Core lifecycle, FFI bindings, environment callback
 │   ├── video.rs            # FbdevVideo: mmap framebuffer, pixel conversion, letterboxing
 │   ├── input.rs            # InputReader: evdev polling, key mapping, menu helpers
@@ -25,7 +25,7 @@ rustsdlretro/
 │   ├── core_options.rs     # Core options v1/v2 API, value storage
 │   ├── gui.rs              # Menu overlay, navigation, rendering
 │   └── build.rs            # bindgen for libretro.h
-├── sdlretro-frontend/      # Binary crate
+├── rustsdlretro-frontend/      # Binary crate
 │   └── main.rs             # CLI entry point, main loop, GUI integration
 └── doc/                    # Design documents
 ```
@@ -117,7 +117,7 @@ Any libretro core should work if it supports the standard libretro API.
 ### Workspace Structure
 
 This is a Cargo workspace with two crates:
-- `sdlretro-core` - Core library (FFI, video, input, audio, GUI)
+- `rustsdlretro-core` - Core library (FFI, video, input, audio, GUI)
 - `rustsdlretro-frontend` - Binary executable
 
 ### Running

@@ -1,9 +1,9 @@
-use sdlretro_core::Core;
-use sdlretro_core::video::FbdevVideo;
-use sdlretro_core::input::InputReader;
-use sdlretro_core::gui::Gui;
-use sdlretro_core::Throttle;
-use sdlretro_core::ResolutionState;
+use rustsdlretro_core::Core;
+use rustsdlretro_core::video::FbdevVideo;
+use rustsdlretro_core::input::InputReader;
+use rustsdlretro_core::gui::Gui;
+use rustsdlretro_core::Throttle;
+use rustsdlretro_core::ResolutionState;
 use std::path::Path;
 use std::ffi::c_void;
 use std::ptr;
@@ -26,8 +26,8 @@ fn setup_signal_handler() {
 
 extern "C" fn video_refresh_cb(pixels: *const c_void, w: u32, h: u32, pitch: usize) {
     unsafe {
-        if !sdlretro_core::video::MAIN_VIDEO.is_null() {
-            let video = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
+        if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
+            let video = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
             video.push_frame(pixels, w, h, pitch);
         }
     }
@@ -84,7 +84,7 @@ fn main() {
     let sys_dir = std::env::var("HOME").unwrap_or_default() + "/.config/rustsdlretro";
     std::fs::create_dir_all(&sys_dir).ok();
     eprintln!("System directory: {}", sys_dir);
-    sdlretro_core::set_system_directory(core.handle(), &sys_dir);
+    rustsdlretro_core::set_system_directory(core.handle(), &sys_dir);
 
     eprintln!("Initializing core...");
     if core.init().is_err() {
@@ -94,7 +94,7 @@ fn main() {
     eprintln!("Init OK");
 
     // Store video and input in statics for callbacks
-    unsafe { sdlretro_core::video::MAIN_VIDEO = Box::into_raw(Box::new(video)) as *mut c_void; }
+    unsafe { rustsdlretro_core::video::MAIN_VIDEO = Box::into_raw(Box::new(video)) as *mut c_void; }
     unsafe { MAIN_INPUT = Box::into_raw(Box::new(input)); }
 
     // Set input callbacks before loading ROM
@@ -134,13 +134,13 @@ fn main() {
     eprintln!("AV: {}x{} @ {:.2} FPS", core_w, core_h, fps);
 
     unsafe {
-        if !sdlretro_core::video::MAIN_VIDEO.is_null() {
-            let v = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
+        if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
+            let v = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
             v.set_core_format(core_w, core_h, 32);
         }
     }
 
-    sdlretro_core::set_resolution_state(res_state.clone());
+    rustsdlretro_core::set_resolution_state(res_state.clone());
 
     // Set video refresh callback after AV info is available
     core.set_video_refresh(Some(video_refresh_cb));
@@ -152,15 +152,15 @@ fn main() {
     eprintln!("Audio sample rate (u32): {} Hz", sample_rate_u32);
 
     eprintln!("Initializing audio...");
-    let audio_driver = sdlretro_core::audio::AudioDriver::new(sample_rate_u32);
+    let audio_driver = rustsdlretro_core::audio::AudioDriver::new(sample_rate_u32);
     match audio_driver {
         Ok(driver) => {
             eprintln!("Audio driver initialized at {} Hz", sample_rate_u32);
-            unsafe { sdlretro_core::MAIN_AUDIO = Box::into_raw(Box::new(driver)) as *mut c_void; }
+            unsafe { rustsdlretro_core::MAIN_AUDIO = Box::into_raw(Box::new(driver)) as *mut c_void; }
         }
         Err(e) => {
             eprintln!("Failed to initialize audio (silent mode): {}", e);
-            unsafe { sdlretro_core::MAIN_AUDIO = ptr::null_mut(); }
+            unsafe { rustsdlretro_core::MAIN_AUDIO = ptr::null_mut(); }
         }
     }
 
@@ -176,9 +176,9 @@ fn main() {
     while RUNNING.load(Ordering::SeqCst) {
         // Handle GUI input
         let menu_open = unsafe {
-            if !sdlretro_core::video::MAIN_VIDEO.is_null() && !MAIN_INPUT.is_null() {
-                let v = &*(sdlretro_core::video::MAIN_VIDEO as *const sdlretro_core::video::FbdevVideo);
-                gui.handle_input(&*MAIN_INPUT, v.fb_height()) == sdlretro_core::gui::GuiState::MenuOpen
+            if !rustsdlretro_core::video::MAIN_VIDEO.is_null() && !MAIN_INPUT.is_null() {
+                let v = &*(rustsdlretro_core::video::MAIN_VIDEO as *const rustsdlretro_core::video::FbdevVideo);
+                gui.handle_input(&*MAIN_INPUT, v.fb_height()) == rustsdlretro_core::gui::GuiState::MenuOpen
             } else {
                 false
             }
@@ -212,8 +212,8 @@ fn main() {
             }
         } else {
             unsafe {
-                if !sdlretro_core::video::MAIN_VIDEO.is_null() {
-                    let v = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
+                if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
+                    let v = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
                     v.set_skip_frame();
                 }
             }
@@ -221,8 +221,8 @@ fn main() {
 
         // Render GUI overlay
         unsafe {
-            if !sdlretro_core::video::MAIN_VIDEO.is_null() {
-                let v = &mut *(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
+            if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
+                let v = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
                 gui.render(v, v.fb_width(), v.fb_height());
             }
         }
@@ -240,15 +240,15 @@ fn main() {
 
     eprintln!("\nUnloading...");
     unsafe {
-        if !sdlretro_core::MAIN_AUDIO.is_null() {
+        if !rustsdlretro_core::MAIN_AUDIO.is_null() {
             eprintln!("Stopping audio...");
-            let audio = &mut *(sdlretro_core::MAIN_AUDIO as *mut sdlretro_core::audio::AudioDriver);
+            let audio = &mut *(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver);
             audio.stop();
-            let _ = Box::from_raw(sdlretro_core::MAIN_AUDIO as *mut sdlretro_core::audio::AudioDriver);
+            let _ = Box::from_raw(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver);
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
-        if !sdlretro_core::video::MAIN_VIDEO.is_null() {
-            let _ = Box::from_raw(sdlretro_core::video::MAIN_VIDEO as *mut sdlretro_core::video::FbdevVideo);
+        if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
+            let _ = Box::from_raw(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
         }
         if !MAIN_INPUT.is_null() {
             let _ = Box::from_raw(MAIN_INPUT);

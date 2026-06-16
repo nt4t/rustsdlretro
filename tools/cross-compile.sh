@@ -79,8 +79,8 @@ echo "  Cleaning previous artifacts for ${TARGET}..."
 rm -rf "${CARGO_TARGET_DIR}/${TARGET}/release"
 
 # Build the core library (cdylib)
-echo "  Building sdlretro-core..."
-cargo build --release --package sdlretro-core --target "${TARGET}"
+echo "  Building rustsdlretro-core..."
+cargo build --release --package rustsdlretro-core --target "${TARGET}"
 
 # Build the frontend binary
 echo "  Building rustsdlretro-frontend..."

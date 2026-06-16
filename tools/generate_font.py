@@ -279,7 +279,7 @@ pub fn measure_text_big(text: &[u8]) -> i32 {
 
 full_rust = generate_rust() + generate_rendering()
 
-with open('sdlretro-core/src/font.rs', 'w') as f:
+with open('rustsdlretro-core/src/font.rs', 'w') as f:
     f.write(full_rust)
 
 print(f'Generated font.rs with {len(small_glyphs)} small glyphs and {len(big_glyphs)} big glyphs')
