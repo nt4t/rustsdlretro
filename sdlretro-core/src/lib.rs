@@ -117,7 +117,6 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
             unsafe {
                 let fn_ptr: retro_log_printf_t = std::mem::transmute(log_callback as *const c_void);
                 (*log_info).log = fn_ptr;
-                eprintln!("Log interface registered");
             }
         }
         return true;
@@ -126,7 +125,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         let info = data as *mut retro_pixel_format;
         if !info.is_null() {
             let format = unsafe { *info };
-            let (name, bpp) = match format {
+            let (_name, bpp) = match format {
                 0 => ("0RGB8888", 32),
                 1 => ("XRGB8888", 32),
                 2 => ("RGB565", 16),
@@ -134,22 +133,18 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
             };
             unsafe {
                 video::CORE_FORMAT.bpp = bpp as u32;
-                eprintln!("Video: pixel format set to {} (id={})", name, format);
             }
         }
         return true;
     }
     if key == 13 {
-        eprintln!("Core requested system directory");
         return true;
     }
     if key == 52 {
-        eprintln!("ENV CB: key 52 (GET_CORE_OPTIONS_VERSION) called");
         let version = data as *mut u32;
         if !version.is_null() {
             unsafe {
                 *version = core_options::V2_API_VERSION;
-                eprintln!("ENV CB: returning version={}", *version);
             }
         }
         return true;
@@ -159,16 +154,6 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         if !defs.is_null() {
             unsafe {
                 let definitions = core_options::parse_v1_definitions(defs);
-                eprintln!("Core options (v1): {} options loaded", definitions.len());
-                for def in &definitions {
-                    eprintln!("  Option: {} = {}", def.key, def.desc);
-                    if !def.values.is_empty() {
-                        eprintln!("    Values: {:?}", def.values.iter().map(|v| &v.value).collect::<Vec<_>>());
-                    }
-                    if let Some(ref default) = def.default_value {
-                        eprintln!("    Default: {}", default);
-                    }
-                }
 CORE_OPTIONS = Some(core_options::CoreOptions {
                       supports_v2: false,
                       v2: None,
@@ -182,22 +167,12 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
         return true;
     }
     if key == 67 {
-        eprintln!("ENV CB: key 67 (SET_CORE_OPTIONS_V2) called");
         let v2_opts = data;
         if !v2_opts.is_null() {
             unsafe {
                 let v2_ptr = v2_opts as *mut retro_core_options_v2;
-                eprintln!("ENV CB: v2_ptr={:p}", v2_ptr);
                 if !v2_ptr.is_null() {
-                    eprintln!("ENV CB: categories={:p}, definitions={:p}", (*v2_ptr).categories, (*v2_ptr).definitions);
                     let definitions = core_options::parse_v2_definitions((*v2_ptr).definitions);
-                    eprintln!("Core options (v2): {} options loaded", definitions.len());
-                    for def in &definitions {
-                        eprintln!("  Option: {} = {}", def.key, def.desc);
-                        if !def.values.is_empty() {
-                            eprintln!("    Values: {:?}", def.values.iter().map(|v| &v.value).collect::<Vec<_>>());
-                        }
-                    }
 CORE_OPTIONS = Some(core_options::CoreOptions {
                           supports_v2: true,
                           v2: Some(core_options::CoreOptionsV2 {
@@ -216,21 +191,14 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
     }
     if key == 68 {
         // SET_CORE_OPTIONS_V2_INTL
-        eprintln!("ENV CB: key 68 (SET_CORE_OPTIONS_V2_INTL) called");
         let intl_opts = data;
         if !intl_opts.is_null() {
             unsafe {
                 let intl_ptr = intl_opts as *mut retro_core_options_v2_intl;
-                eprintln!("ENV CB: intl_ptr={:p}", intl_ptr);
                 if !intl_ptr.is_null() {
                     let us_ptr = (*intl_ptr).us;
-                    eprintln!("ENV CB: us_ptr={:p}", us_ptr);
                     if !us_ptr.is_null() {
                         let definitions = core_options::parse_v2_definitions((*us_ptr).definitions);
-                        eprintln!("Core options (v2_intl): {} options loaded", definitions.len());
-                        for def in &definitions {
-                            eprintln!("  Option: {} = {}", def.key, def.desc);
-                        }
                         CORE_OPTIONS = Some(core_options::CoreOptions {
                             supports_v2: true,
                             v2: Some(core_options::CoreOptionsV2 {
@@ -251,12 +219,7 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
     if key == 55 {
         let display = data as *mut retro_core_option_display;
         if !display.is_null() {
-            unsafe {
-                let key_ptr = (*display).key;
-                let visible = (*display).visible;
-                let key = CStr::from_ptr(key_ptr).to_string_lossy().into_owned();
-                eprintln!("Core option display: {} visible={}", key, visible);
-            }
+            // Core option display toggle - no logging
         }
         return true;
     }
@@ -288,7 +251,6 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
                     drop(s);
 
                     if changed {
-                        eprintln!("Resolution changed: {}x{} @ {:.2} FPS", w, h, fps);
                         unsafe {
                             if !video::MAIN_VIDEO.is_null() {
                                 let video = &mut *(video::MAIN_VIDEO as *mut video::FbdevVideo);
@@ -307,7 +269,6 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
                     if !MAIN_AUDIO.is_null() {
                         let audio = &mut *(MAIN_AUDIO as *mut audio::AudioDriver);
                         if new_sample_rate != audio.sample_rate {
-                            eprintln!("Sample rate change requested: {} Hz", new_sample_rate);
                             audio.restart_with_rate(new_sample_rate);
                         }
                     }
@@ -338,7 +299,6 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
                     let value = CStr::from_ptr(value_ptr).to_string_lossy().into_owned();
                     if let Some((title, values)) = core_options::parse_old_variable_string(&value) {
                         let default_index = values.iter().position(|v| v == &values[0]).unwrap_or(0);
-                        eprintln!("  Old var: {} = {} (values: {:?})", key, title, values);
                         old_vars.push(core_options::OldVariable {
                             key: key.clone(),
                             title,
