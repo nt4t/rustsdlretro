@@ -112,6 +112,8 @@ fn main() {
     }
     eprintln!("Load OK");
 
+    gui.set_rom_name(Path::new(rom_path).file_stem().map(|s| s.to_str().unwrap_or("Game")).unwrap_or("Game"));
+
     let res_state = core.get_resolution_state();
 
     // Get AV info after ROM loaded (core may not have valid AV info before load)
