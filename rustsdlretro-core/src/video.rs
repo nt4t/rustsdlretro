@@ -263,6 +263,10 @@ impl FbdevVideo {
         self.frame_drawn = false;
     }
 
+    pub fn clear_overlay(&mut self, fb_width: u32, fb_height: u32) {
+        self.draw_rect_overlay(0, 0, fb_width as i32, fb_height as i32, 0x000000);
+    }
+
     pub fn draw_pixel_overlay(&mut self, x: i32, y: i32, color: u32) {
         if x < 0 || y < 0 || x as u32 >= self.fb_width || y as u32 >= self.fb_height {
             return;

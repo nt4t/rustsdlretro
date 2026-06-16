@@ -226,10 +226,12 @@ pub struct Gui {
     frame_count: u64,
     /// User-selected values (key -> value string)
     selected_values: std::collections::HashMap<String, String>,
+    /// Whether framebuffer needs to be cleared
+    clear_needed: bool,
 }
 
 impl Gui {
-    /// Create a new GUI instance
+   /// Create a new GUI instance
     pub fn new() -> Self {
         Self {
             state: GuiState::Playing,
@@ -241,8 +243,9 @@ impl Gui {
             last_nav_frame: 0,
             nav_key_released: true,
              last_value_frame: 0,
-           frame_count: 0,
+            frame_count: 0,
             selected_values: std::collections::HashMap::new(),
+            clear_needed: false,
         }
     }
 
@@ -258,6 +261,7 @@ impl Gui {
 
     /// Toggle menu open/close
     pub fn toggle_menu(&mut self) {
+        self.clear_needed = true;
         self.state = match self.state {
             GuiState::Playing => GuiState::MenuOpen,
             GuiState::MenuOpen | GuiState::Settings => GuiState::Playing,
@@ -422,6 +426,7 @@ impl Gui {
 
             // ESC to close menu
             if input.was_key_just_pressed(1) {
+                self.clear_needed = true;
                 self.state = GuiState::Playing;
             }
         }
@@ -429,10 +434,15 @@ impl Gui {
         self.state.clone()
     }
 
-   /// Render the GUI overlay on the framebuffer
-  pub fn render(&self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
+  /// Render the GUI overlay on the framebuffer
+   pub fn render(&mut self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
         if self.state == GuiState::Playing {
             return;
+        }
+
+        if self.clear_needed {
+            video.clear_overlay(fb_width, fb_height);
+            self.clear_needed = false;
         }
 
         let menu = match &self.menu {
