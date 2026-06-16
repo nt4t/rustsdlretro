@@ -123,8 +123,8 @@ impl Menu {
     }
 
     /// Get the number of items visible on screen
-    pub fn visible_count(&self, fb_height: u32) -> usize {
-        let available_height = fb_height as i32 - 40; // Reserve space for header/footer
+    pub fn visible_count(&self, menu_height: i32) -> usize {
+        let available_height = menu_height - 35; // Reserve space for header/footer
         let item_height = 12; // Small font height + padding
         (available_height / item_height) as usize
     }
@@ -140,8 +140,8 @@ impl Menu {
     }
 
     /// Move selection down
-    pub fn select_down(&mut self, fb_height: u32) {
-        let visible = self.visible_count(fb_height);
+    pub fn select_down(&mut self, menu_height: i32) {
+        let visible = self.visible_count(menu_height);
         if self.selected < self.items.len() - 1 {
             self.selected += 1;
             if self.selected >= self.scroll_offset + visible {
@@ -349,6 +349,8 @@ impl Gui {
 
         // Menu is open - handle navigation
         if let Some(ref mut menu) = self.menu {
+            let fb_h = fb_height as i32;
+            let menu_height = (fb_h - 60).max(120);
             let up_pressed = input.is_key_pressed(14);
             let down_pressed = input.is_key_pressed(17);
             let left_pressed = input.is_key_pressed(12);
@@ -368,7 +370,7 @@ impl Gui {
 
             // Down arrow (debounced)
             if down_pressed && self.nav_key_released {
-                menu.select_down(fb_height);
+                menu.select_down(menu_height);
                 self.show_info = false;
                 self.nav_key_released = false;
             }
@@ -427,8 +429,8 @@ impl Gui {
         self.state.clone()
     }
 
-    /// Render the GUI overlay on the framebuffer
- pub fn render(&self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
+   /// Render the GUI overlay on the framebuffer
+  pub fn render(&self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
         if self.state == GuiState::Playing {
             return;
         }
@@ -438,11 +440,16 @@ impl Gui {
             None => {
                 let w = fb_width as i32;
                 let h = fb_height as i32;
-                video.draw_rect_overlay(10, 40, w - 10, 120, 0x000000);
-                let overlay_y = 60;
-                video.draw_text_overlay(20, overlay_y, b"Core options not available", 0xFFFF00);
-                 video.draw_text_overlay(20, overlay_y + 12, b"Press ESC to close", 0x888888);
-                eprintln!("GUI: rendered fallback overlay");
+                let menu_width = (w - 20).max(200);
+                let menu_height = (h - 60).max(120);
+                let bg_x1 = (w - menu_width) / 2;
+                let bg_y1 = (h - menu_height) / 2 - 20;
+                let bg_x2 = bg_x1 + menu_width;
+                let bg_y2 = bg_y1 + menu_height;
+                video.draw_rect_overlay(bg_x1, bg_y1, bg_x2, bg_y2, 0x000000);
+                let overlay_y = bg_y1 + 20;
+                video.draw_text_overlay(bg_x1 + 10, overlay_y, b"Core options not available", 0xFFFF00);
+                video.draw_text_overlay(bg_x1 + 10, overlay_y + 12, b"Press ESC to close", 0x888888);
                 return;
             }
         };
@@ -450,11 +457,13 @@ impl Gui {
         let w = fb_width as i32;
         let h = fb_height as i32;
 
-        // Draw semi-transparent background
-        let bg_x1 = (w - 400) / 2;
-        let bg_y1 = 60;
-        let bg_x2 = bg_x1 + 400;
-        let bg_y2 = h - 40;
+        // Menu dimensions for 320x240, scaled for larger resolutions
+        let menu_width = (w - 20).max(200);
+        let menu_height = (h - 60).max(120);
+        let bg_x1 = (w - menu_width) / 2;
+        let bg_y1 = (h - menu_height) / 2 - 20;
+        let bg_x2 = bg_x1 + menu_width;
+        let bg_y2 = bg_y1 + menu_height;
 
         video.draw_rect_overlay(bg_x1, bg_y1, bg_x2, bg_y2, 0x000000);
 
@@ -475,13 +484,13 @@ impl Gui {
         video.draw_text_overlay(header_x, header_y, self.core_name.as_bytes(), 0xFFFFFF);
 
         // Calculate visible items
-        let visible_count = menu.visible_count(fb_height);
+        let visible_count = menu.visible_count(menu_height);
         let item_height = 12;
-        let start_y = bg_y1 + 30;
+        let start_y = bg_y1 + 25;
 
         // Draw scroll indicator if needed
         if menu.scroll_offset > 0 {
-            video.draw_text_overlay(bg_x1 + bg_x2 - bg_x1 - 20, start_y, b"^", 0x888888);
+            video.draw_text_overlay(bg_x2 - 15, start_y, b"^", 0x888888);
         }
 
         // Draw menu items
@@ -491,7 +500,7 @@ impl Gui {
             }
 
             let item_y = start_y + ((i as i32) - (menu.scroll_offset as i32)) * item_height;
-            let item_x = bg_x1 + 15;
+            let item_x = bg_x1 + 10;
 
             let is_selected = i == menu.selected;
 
@@ -512,7 +521,7 @@ impl Gui {
                     if let Some(current_value) = values.get(*current_index) {
                         let value_text = format!("[{}]", current_value);
                         let value_color = if is_selected { 0xFFFF00 } else { 0x888888 };
-                        let value_x = bg_x2 - 15 - value_text.len() as i32 * 6;
+                        let value_x = bg_x2 - 10 - value_text.len() as i32 * 6;
                         video.draw_text_overlay(value_x as i32, item_y, value_text.as_bytes(), value_color);
                     }
 
@@ -534,7 +543,7 @@ impl Gui {
 
                     // Draw arrow indicator
                     if is_selected && values.len() > 1 {
-                        video.draw_text_overlay(item_x - 8, item_y, b">", 0xFFFF00);
+                        video.draw_text_overlay(item_x - 6, item_y, b">", 0xFFFF00);
                     }
                 }
                 MenuItem::Separator => {
@@ -552,12 +561,12 @@ impl Gui {
 
         // Draw scroll down indicator
         if menu.scroll_offset + visible_count < menu.items.len() {
-            let scroll_y = bg_y2 - 20;
-            video.draw_text_overlay(bg_x1 + bg_x2 - bg_x1 - 20, scroll_y, b"v", 0x888888);
+            let scroll_y = bg_y2 - 15;
+            video.draw_text_overlay(bg_x2 - 15, scroll_y, b"v", 0x888888);
         }
 
         // Draw footer
-        let footer_y = bg_y2 + 10;
+        let footer_y = bg_y2 + 8;
         let footer_text = format!("{} | Press ESC to close", self.rom_name);
         video.draw_text_overlay((w - footer_text.len() as i32 * 5) / 2, footer_y, footer_text.as_bytes(), 0x666666);
 
