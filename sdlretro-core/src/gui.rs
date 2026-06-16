@@ -71,10 +71,12 @@ impl Menu {
             label: "Back".to_string(),
         });
 
+        // selected=0 points to header (not drawn in loop), selected=1 is separator, selected=2 is first option
+        let initial_selection = if items.len() > 2 { 2 } else { 0 };
         Self {
             title: title.to_string(),
             items,
-            selected: 0,
+            selected: initial_selection,
             scroll_offset: 0,
         }
     }
@@ -110,10 +112,12 @@ impl Menu {
             label: "Back".to_string(),
         });
 
+        // selected=0 points to header (not drawn in loop), selected=1 is separator, selected=2 is first option
+        let initial_selection = if items.len() > 2 { 2 } else { 0 };
         Self {
             title: title.to_string(),
             items,
-            selected: 0,
+            selected: initial_selection,
             scroll_offset: 0,
         }
     }
