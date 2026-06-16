@@ -315,11 +315,9 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
                         break;
                     }
                 }
-                if !old_vars.is_empty() {
+                 if !old_vars.is_empty() {
                     if let Some(ref mut core_opts) = CORE_OPTIONS {
                         core_opts.old_vars = old_vars;
-                    } else {
-                        eprintln!("Old variables: {} options (no CORE_OPTIONS yet)", old_vars.len());
                     }
                 }
             }
@@ -334,7 +332,6 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
                 let key_ptr = (*var).key;
                 if !key_ptr.is_null() {
                     let key = CStr::from_ptr(key_ptr).to_string_lossy().into_owned();
-                    eprintln!("GET_VARIABLE called: {}", key);
                     // Check v2_values first, then old_values, then defaults
                     let current_val = if let Some(ref core_opts) = CORE_OPTIONS {
                         core_opts.get_current_value(&key)
@@ -345,9 +342,6 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
                         let c_val = CString::new(val.as_str()).unwrap();
                         (*var).value = c_val.as_ptr();
                         std::mem::forget(c_val);
-                        eprintln!("  returning: {}", val);
-                    } else {
-                        eprintln!("  no value found");
                     }
                 }
             }
@@ -361,15 +355,10 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
             unsafe {
                 *update = VARIABLE_UPDATE_PENDING;
                 VARIABLE_UPDATE_PENDING = false;
-                eprintln!("GET_VARIABLE_UPDATE: returning {}", *update);
             }
         }
         return true;
     }
-    static mut KEY_COUNT: u32 = 0;
-    unsafe { KEY_COUNT += 1; }
-    let count = unsafe { KEY_COUNT };
-    eprintln!("ENV CB #[{}] key={}", count, key);
     false
 }
 
@@ -384,11 +373,10 @@ pub fn set_resolution_state(state: Arc<Mutex<ResolutionState>>) {
 pub fn set_system_directory(handle: *mut c_void, dir: &str) {
     let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(handle, "retro_set_environment", RetroSetEnvironmentFn) };
     let c_dir = CString::new(dir).unwrap();
-    unsafe {
+   unsafe {
         SYSTEM_DIR = c_dir.as_ptr() as *const libc::c_char;
         std::mem::forget(c_dir);
         set_env(Some(system_dir_env_callback));
-        eprintln!("System directory set to: {}", dir);
     }
 }
 
