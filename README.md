@@ -1,6 +1,6 @@
 # rustsdlretro
 
-A Rust port of sdlretro - a libretro frontend for Linux framebuffer devices. Runs retro game emulators on embedded Linux hardware (Raspberry Pi, retroPie devices) without X11 or SDL dependencies.
+Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emulators on embedded Linux hardware (Raspberry Pi, retroPie devices) without X11 or SDL dependencies.
 
 ## Features
 
