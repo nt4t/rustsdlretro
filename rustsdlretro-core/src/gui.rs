@@ -434,15 +434,15 @@ impl Gui {
         self.state.clone()
     }
 
-  /// Render the GUI overlay on the framebuffer
-   pub fn render(&mut self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
-        if self.state == GuiState::Playing {
-            return;
-        }
-
+ /// Render the GUI overlay on the framebuffer
+    pub fn render(&mut self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
         if self.clear_needed {
             video.clear_overlay(fb_width, fb_height);
             self.clear_needed = false;
+        }
+
+        if self.state == GuiState::Playing {
+            return;
         }
 
         let menu = match &self.menu {
