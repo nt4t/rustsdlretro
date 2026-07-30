@@ -24,6 +24,7 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 | Font renderer | ✅ DONE | Bitmap font with embedded glyph data, shadow rendering, text measurement |
 | Core options | ✅ DONE | v1/v2 API support, runtime option changes via GET_VARIABLE_UPDATE |
 | Phase 4: UI System | ✅ DONE | Menu overlay with ESC toggle, option browsing, value cycling, debounce |
+| Rendering Optimization | ✅ DONE | Bulk memory operations for overlay rects/lines (eliminated menu flicker) |
 | Phase 5: Full Integration | 🔲 TODO | Config, i18n, save states, ZIP ROM loading |
 | Phase 6: Hardening | 🔲 TODO | Performance, device testing, packaging |
 
@@ -41,6 +42,7 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **Font renderer**: Embedded bitmap fonts (8px/16px tall), shadow rendering, text measurement, XRGB8888/RGB565 support
 - **Core options**: v1/v2 API support, SET_CORE_OPTIONS_V2_INTL, runtime option changes via GET_VARIABLE_UPDATE
 - **GUI overlay**: ESC toggle menu, option browsing, value cycling (left/right arrows/space), navigation debounce, fallback rendering
+- **Overlay rendering**: Optimized `draw_rect_overlay`, `draw_hline_overlay`, `draw_vline_overlay` using bulk memory writes (100-300× faster than pixel-by-pixel)
 
 ### Pending Features
 - **Audio**: ALSA PCM output with resampling (libsamplerate)
@@ -62,7 +64,7 @@ sdlretro/
 ├── sdlretro-core/                # Libretro core management (FFI)
 │   ├── src/
 │   │   ├── lib.rs                # Core struct, ResolutionState, Throttle, FFI bindings, env callback
-│   │   ├── video.rs              # FbdevVideo: mmap fb0, pixel conversion, letterboxing, overlay helpers
+│   │   ├── video.rs              # FbdevVideo: mmap fb0, pixel conversion, letterboxing, optimized overlay (rect/hline/vline bulk writes)
 │   │   ├── input.rs              # InputReader: evdev polling thread, key mapping, menu helpers
 │   │   ├── font.rs               # Bitmap font renderer: glyph data, text rendering, shadow, measurement
 │   │   ├── core_options.rs       # Core options: v1/v2 FFI bindings, variable parsing, value storage

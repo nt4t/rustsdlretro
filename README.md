@@ -104,6 +104,7 @@ Any libretro core should work if it supports the standard libretro API.
 - Bitmap font renderer
 - Core options v1/v2 support
 - GUI menu overlay with scrolling
+- Optimized overlay rendering (bulk memory writes, no flicker)
 
 ### Pending
 - ZIP ROM loading
