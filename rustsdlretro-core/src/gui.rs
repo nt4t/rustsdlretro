@@ -129,9 +129,9 @@ impl Menu {
         (available_height / item_height) as usize
     }
 
-    /// Move selection up
+    /// Move selection up (stops at first option item, index 2)
     pub fn select_up(&mut self) {
-        if self.selected > 0 {
+        if self.selected > 2 {
             self.selected -= 1;
             if self.selected < self.scroll_offset {
                 self.scroll_offset = self.selected;
