@@ -477,16 +477,12 @@ impl Gui {
 
         video.draw_rect_overlay(bg_x1, bg_y1, bg_x2, bg_y2, 0x000000);
 
-        // Draw border
+        // Draw border (optimized with bulk line writes)
         let border_color = 0x888888;
-        for x in bg_x1..bg_x2 {
-            video.draw_pixel_overlay(x, bg_y1, border_color);
-            video.draw_pixel_overlay(x, bg_y2 - 1, border_color);
-        }
-        for y in bg_y1..bg_y2 {
-            video.draw_pixel_overlay(bg_x1, y, border_color);
-            video.draw_pixel_overlay(bg_x2 - 1, y, border_color);
-        }
+        video.draw_hline_overlay(bg_x1, bg_x2, bg_y1, border_color);
+        video.draw_hline_overlay(bg_x1, bg_x2, bg_y2 - 1, border_color);
+        video.draw_vline_overlay(bg_x1, bg_y1, bg_y2, border_color);
+        video.draw_vline_overlay(bg_x2 - 1, bg_y1, bg_y2, border_color);
 
         // Draw header
         let header_y = bg_y1 + 10;
@@ -558,9 +554,7 @@ impl Gui {
                 }
                 MenuItem::Separator => {
                     let sep_color = 0x444444;
-                    for x in bg_x1 + 10..bg_x2 - 10 {
-                        video.draw_pixel_overlay(x, item_y, sep_color);
-                    }
+                    video.draw_hline_overlay(bg_x1 + 10, bg_x2 - 10, item_y, sep_color);
                 }
                 MenuItem::Action { label } => {
                     let color = if is_selected { 0xFFFF00 } else { 0x888888 };

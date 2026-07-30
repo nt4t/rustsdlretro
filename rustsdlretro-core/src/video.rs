@@ -276,6 +276,93 @@ impl FbdevVideo {
         }
     }
 
+    /// Draw a horizontal line (optimized bulk write)
+    pub fn draw_hline_overlay(&mut self, x1: i32, x2: i32, y: i32, color: u32) {
+        if y < 0 || y as u32 >= self.fb_height {
+            return;
+        }
+        let x1 = x1.max(0).min(self.fb_width as i32);
+        let x2 = x2.max(0).min(self.fb_width as i32);
+        if x1 >= x2 {
+            return;
+        }
+
+        let width = (x2 - x1) as usize;
+        let fb_pitch = self.fb_pitch as usize;
+        let fb_bpp = self.fb_bpp;
+
+        unsafe {
+            if fb_bpp == 32 {
+                let color_u32 = color;
+                let row_offset = (y as usize) * fb_pitch + (x1 as usize) * 4;
+                let mut dest = self.fb_ptr.add(row_offset) as *mut u32;
+                for _ in 0..width {
+                    *dest = color_u32;
+                    dest = dest.add(1);
+                }
+            } else if fb_bpp == 16 {
+                let r = ((color >> 16) & 0xFF) as u16;
+                let g = ((color >> 8) & 0xFF) as u16;
+                let b = (color & 0xFF) as u16;
+                let rgb565 = (r & 0xF8) << 8 | (g & 0xFC) << 3 | (b >> 3);
+                let row_offset = (y as usize) * fb_pitch + (x1 as usize) * 2;
+                let mut dest = self.fb_ptr.add(row_offset) as *mut u16;
+                for _ in 0..width {
+                    *dest = rgb565;
+                    dest = dest.add(1);
+                }
+            } else {
+                for x in x1..x2 {
+                    font::write_pixel(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, color);
+                }
+            }
+        }
+    }
+
+    /// Draw a vertical line (optimized bulk write)
+    pub fn draw_vline_overlay(&mut self, x: i32, y1: i32, y2: i32, color: u32) {
+        if x < 0 || x as u32 >= self.fb_width {
+            return;
+        }
+        let y1 = y1.max(0).min(self.fb_height as i32);
+        let y2 = y2.max(0).min(self.fb_height as i32);
+        if y1 >= y2 {
+            return;
+        }
+
+        let height = (y2 - y1) as usize;
+        let fb_pitch = self.fb_pitch as usize;
+        let fb_bpp = self.fb_bpp;
+        let x_offset = (x as usize) * ((fb_bpp / 8) as usize);
+
+        unsafe {
+            if fb_bpp == 32 {
+                let color_u32 = color;
+                let base_row = (y1 as usize) * fb_pitch + x_offset;
+                let mut dest = self.fb_ptr.add(base_row) as *mut u32;
+                for _ in 0..height {
+                    *dest = color_u32;
+                    dest = dest.add(fb_pitch / 4);
+                }
+            } else if fb_bpp == 16 {
+                let r = ((color >> 16) & 0xFF) as u16;
+                let g = ((color >> 8) & 0xFF) as u16;
+                let b = (color & 0xFF) as u16;
+                let rgb565 = (r & 0xF8) << 8 | (g & 0xFC) << 3 | (b >> 3);
+                let base_row = (y1 as usize) * fb_pitch + x_offset;
+                let mut dest = self.fb_ptr.add(base_row) as *mut u16;
+                for _ in 0..height {
+                    *dest = rgb565;
+                    dest = dest.add(fb_pitch / 2);
+                }
+            } else {
+                for y in y1..y2 {
+                    font::write_pixel(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, color);
+                }
+            }
+        }
+    }
+
     pub fn draw_rect_overlay(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32) {
         let x1 = x1.max(0).min(self.fb_width as i32);
         let y1 = y1.max(0).min(self.fb_height as i32);
@@ -284,10 +371,41 @@ impl FbdevVideo {
         if x1 >= x2 || y1 >= y2 {
             return;
         }
-        for y in y1..y2 {
-            for x in x1..x2 {
-                unsafe {
-                    font::write_pixel(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, color);
+
+        let width = (x2 - x1) as usize;
+        let fb_pitch = self.fb_pitch as usize;
+        let fb_bpp = self.fb_bpp;
+
+        unsafe {
+            if fb_bpp == 32 {
+                let color_u32 = color;
+                for y in y1..y2 {
+                    let row_offset = (y as usize) * fb_pitch + (x1 as usize) * 4;
+                    let mut dest = self.fb_ptr.add(row_offset) as *mut u32;
+                    for _ in 0..width {
+                        *dest = color_u32;
+                        dest = dest.add(1);
+                    }
+                }
+            } else if fb_bpp == 16 {
+                let r = ((color >> 16) & 0xFF) as u16;
+                let g = ((color >> 8) & 0xFF) as u16;
+                let b = (color & 0xFF) as u16;
+                let rgb565 = (r & 0xF8) << 8 | (g & 0xFC) << 3 | (b >> 3);
+                for y in y1..y2 {
+                    let row_offset = (y as usize) * fb_pitch + (x1 as usize) * 2;
+                    let mut dest = self.fb_ptr.add(row_offset) as *mut u16;
+                    for _ in 0..width {
+                        *dest = rgb565;
+                        dest = dest.add(1);
+                    }
+                }
+            } else {
+                // Fallback to pixel-by-pixel for unsupported bpp
+                for y in y1..y2 {
+                    for x in x1..x2 {
+                        font::write_pixel(self.fb_ptr, self.fb_pitch, self.fb_bpp, x, y, color);
+                    }
                 }
             }
         }
