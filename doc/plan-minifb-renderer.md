@@ -154,6 +154,11 @@ rustsdlretro-frontend/
 3. ✅ Handle both backends in the main loop
 4. ✅ Graceful shutdown on window close
 
+### Phase 6: Bug Fixes ✅ DONE
+1. ✅ Fixed `Throttle::new`: `next_frame` initialized to `now_usec() + frame_time` (was `now_usec()`), preventing first-frame skip
+2. ✅ Fixed `Throttle::check_wait`: when late, `next_frame = now + frame_time` (was `next_frame += frame_time`), preventing perpetual frame skip
+3. ✅ Fixed minifb pixel format: all color writes use ARGB8888 (`0xAARRGGBB`) instead of incorrect `0x00BBGGRR`
+
 ## MinifbVideo Method Details
 
 ```rust
@@ -199,14 +204,23 @@ impl MinifbVideo {
     pub fn is_open(&self) -> bool {
         self.window.is_open()
     }
+
+    pub fn push_frame(&mut self, pixels: *const c_void, frame_w: u32, frame_h: u32, pitch: usize) {
+        // Skip frame if throttle requested it
+        if self.skip_frame { self.skip_frame = false; return; }
+        // Handle core XRGB8888 (32bpp) and RGB565 (16bpp) → minifb ARGB8888
+        // Color conversion: 0xAARRGGBB = 0xFF000000 | (r << 16) | (g << 8) | b
+        // Letterboxing: centered with offset_x / offset_y
+    }
 }
 ```
 
 ## Key Considerations
 
 1. **Letterboxing**: Both backends need the same letterboxing math. Extract to a shared function.
-2. **Pixel format**: minifb always uses 32bpp XRGB8888 (little-endian: `B|G|R|0x00`). This matches the framebuffer when `fb_bpp == 32`.
-3. **Overlay rendering on minifb**: Since the buffer is always 32bpp, overlay drawing is simpler — no RGB565 conversion needed.
+2. **Pixel format**: minifb expects ARGB8888 (`0xAARRGGBB` as a `u32`). On little-endian the in-memory byte order is B-G-R-A, so `0xAARRGGBB` maps to bytes `BB GG RR AA`. Core XRGB8888 frames are converted via `0xFF000000 | (r << 16) | (g << 8) | b`. Core RGB565 frames are expanded to 8-bit per channel then written the same way.
+3. **Overlay rendering on minifb**: Since the buffer is always 32bpp, overlay drawing is simpler — no RGB565 conversion needed. All overlay colors must also use `0xFF000000 | (r << 16) | (g << 8) | b` format.
+4. **Throttle timing**: The `Throttle` struct in `lib.rs` controls frame pacing. `next_frame` is initialized to `now_usec() + frame_time` (not `now_usec()`) so the first frame is never skipped. When the emulator runs faster than target FPS and `check_wait()` returns negative, `next_frame` is reset to `now + frame_time` (not `next_frame += frame_time`) to prevent `next_frame` from drifting indefinitely ahead, which would cause every subsequent frame to be skipped.
 4. **Scaling**: Use `WindowOptions::scale = Scale::X2` (or X3/X4) so the core renders at native resolution and minifb scales up. This gives crisp pixel art on high-res displays.
 5. **Borderless mode**: When `borderless: true`, the window fills the screen area — useful for kiosk mode on embedded devices.
 6. **Config file permissions**: Use `0o600` when writing config for security.
