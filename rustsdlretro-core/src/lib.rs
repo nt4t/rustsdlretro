@@ -455,7 +455,7 @@ impl Throttle {
         let frame_time = (1_000_000.0 / fps) as u64;
         Self {
             frame_time,
-            next_frame: now_usec(),
+            next_frame: now_usec() + frame_time,
         }
     }
 
@@ -465,7 +465,7 @@ impl Throttle {
         if result > 0 {
             result
         } else {
-            self.next_frame += self.frame_time;
+            self.next_frame = now + self.frame_time;
             result
         }
     }

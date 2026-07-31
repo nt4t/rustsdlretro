@@ -52,6 +52,7 @@ impl MinifbVideo {
 
         let mut window = Window::new(title, window_width as usize, window_height as usize, opts)
             .map_err(|e| format!("Failed to create window: {}", e))?;
+        window.set_target_fps(60);
 
         let buffer = vec![0u32; (window_width * window_height) as usize];
 

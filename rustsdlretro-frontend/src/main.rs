@@ -3,14 +3,14 @@ use rustsdlretro_core::video::VideoBackend;
 use rustsdlretro_core::config::{Config, Renderer};
 use rustsdlretro_core::input::InputReader;
 use rustsdlretro_core::gui::Gui;
-// use rustsdlretro_core::Throttle; // disabled for testing
+use rustsdlretro_core::Throttle;
 use rustsdlretro_core::ResolutionState;
 use std::path::Path;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-// use std::time::Duration; // disabled for testing
+use std::time::Duration;
 use std::mem::ManuallyDrop;
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
@@ -192,8 +192,7 @@ fn main() {
 
     setup_signal_handler();
 
-    // TODO: re-enable throttle for production
-    // let mut throttle = Throttle::new(fps);
+    let mut throttle = Throttle::new(fps);
     let mut frame_count: u64 = 0;
     let mut last_fps_time = std::time::Instant::now();
     let mut last_fps_frames: u64 = 0;
@@ -214,34 +213,33 @@ fn main() {
         }
         frame_count += 1;
 
-        // Throttle disabled for testing
-        // let current_fps = {
-        //     let s = res_state.lock().unwrap();
-        //     s.fps
-        // };
-        // if current_fps > 0.0 {
-        //     let new_frame_time = (1_000_000.0 / current_fps) as u64;
-        //     if new_frame_time != throttle.frame_time() {
-        //         eprintln!("FPS changed to {:.2}, updating throttle", current_fps);
-        //         throttle = Throttle::new(current_fps);
-        //     }
-        // }
-        //
-        // let usecs = throttle.check_wait();
-        // if usecs > 0 {
-        //     let mut remaining = usecs;
-        //     while remaining > 0 {
-        //         let sleep_us = (remaining.min(5000)) as u64;
-        //         std::thread::sleep(Duration::from_micros(sleep_us));
-        //         remaining = throttle.check_wait();
-        //     }
-        // } else {
-        //     unsafe {
-        //         if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
-        //             (*v).set_skip_frame();
-        //         }
-        //     }
-        // }
+        let current_fps = {
+            let s = res_state.lock().unwrap();
+            s.fps
+        };
+        if current_fps > 0.0 {
+            let new_frame_time = (1_000_000.0 / current_fps) as u64;
+            if new_frame_time != throttle.frame_time() {
+                eprintln!("FPS changed to {:.2}, updating throttle", current_fps);
+                throttle = Throttle::new(current_fps);
+            }
+        }
+
+        let usecs = throttle.check_wait();
+        if usecs > 0 {
+            let mut remaining = usecs;
+            while remaining > 0 {
+                let sleep_us = (remaining.min(5000)) as u64;
+                std::thread::sleep(Duration::from_micros(sleep_us));
+                remaining = throttle.check_wait();
+            }
+        } else {
+            unsafe {
+                if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
+                    (*v).set_skip_frame();
+                }
+            }
+        }
 
         // Render GUI overlay
         unsafe {
