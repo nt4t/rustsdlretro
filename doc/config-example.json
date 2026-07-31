@@ -1,0 +1,13 @@
+{
+    "renderer": "minifb",
+    "window": {
+        "width": 640,
+        "height": 480,
+        "scale": 2,
+        "borderless": false,
+        "title": "rustsdlretro"
+    },
+    "input": {
+        "device": "/dev/input/event0"
+    }
+}
