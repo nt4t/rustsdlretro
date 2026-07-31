@@ -25,7 +25,9 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 | Core options | ✅ DONE | v1/v2 API support, runtime option changes via GET_VARIABLE_UPDATE |
 | Phase 4: UI System | ✅ DONE | Menu overlay with ESC toggle, option browsing, value cycling, debounce |
 | Rendering Optimization | ✅ DONE | Bulk memory operations for overlay rects/lines (eliminated menu flicker) |
-| Phase 5: Full Integration | 🔲 TODO | Config, i18n, save states, ZIP ROM loading |
+| Minifb Renderer | ✅ DONE | X11 windowed backend, letterboxing, overlay drawing, scale modes |
+| Config System | ✅ DONE | JSON config file, renderer selection, window settings, CLI override |
+| Phase 5: Full Integration | 🔲 TODO | i18n, save states, ZIP ROM loading |
 | Phase 6: Hardening | 🔲 TODO | Performance, device testing, packaging |
 
 ### Implemented Features
@@ -43,10 +45,12 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **Core options**: v1/v2 API support, SET_CORE_OPTIONS_V2_INTL, runtime option changes via GET_VARIABLE_UPDATE
 - **GUI overlay**: ESC toggle menu, option browsing, value cycling (left/right arrows/space), navigation debounce, fallback rendering
 - **Overlay rendering**: Optimized `draw_rect_overlay`, `draw_hline_overlay`, `draw_vline_overlay` using bulk memory writes (100-300× faster than pixel-by-pixel)
+- **VideoBackend trait**: Abstracted video rendering behind a trait for backend-agnostic GUI rendering
+- **MinifbVideo**: X11 windowed backend with letterboxing, overlay drawing, scale modes (X1/X2/X3/X4), borderless option
+- **Config system**: JSON config file at `~/.config/rustsdlretro/config.json`, renderer selection, window settings, CLI `--config` override
 
 ### Pending Features
 - **Audio**: ALSA PCM output with resampling (libsamplerate)
-- **Config**: sdlretro.json loader/writer
 - **Save states**: SRAM/RTC persistence
 - **ZIP ROM loading**: miniz_oxide extraction
 - **i18n**: Language file loading
@@ -64,7 +68,9 @@ sdlretro/
 ├── sdlretro-core/                # Libretro core management (FFI)
 │   ├── src/
 │   │   ├── lib.rs                # Core struct, ResolutionState, Throttle, FFI bindings, env callback
-│   │   ├── video.rs              # FbdevVideo: mmap fb0, pixel conversion, letterboxing, optimized overlay (rect/hline/vline bulk writes)
+│   │   ├── video.rs              # VideoBackend trait + FbdevVideo: mmap fb0, pixel conversion, letterboxing, optimized overlay
+│   │   ├── video_minifb.rs       # MinifbVideo: X11 windowed backend, buffer rendering, letterboxing
+│   │   ├── config.rs             # Config system: JSON parsing, renderer selection, window settings
 │   │   ├── input.rs              # InputReader: evdev polling thread, key mapping, menu helpers
 │   │   ├── font.rs               # Bitmap font renderer: glyph data, text rendering, shadow, measurement
 │   │   ├── core_options.rs       # Core options: v1/v2 FFI bindings, variable parsing, value storage
@@ -73,7 +79,7 @@ sdlretro/
 │
 ├── sdlretro-frontend/            # Binary crate: main entry point
 │   ├── src/
-│   │   └── main.rs               # CLI args, driver init, main loop, GUI integration
+│   │   └── main.rs               # CLI args, config loading, backend selection, main loop, GUI integration
 │   └── Cargo.toml
 │
 └── doc/
@@ -207,6 +213,54 @@ pub struct FbdevVideo {
 - **Pixel conversion**: XRGB8888 ↔ RGB565 (bit manipulation, no SIMD yet)
 - **Letterboxing**: Computed per-frame from actual core resolution
 
+### Graphics Driver (Minifb - Windowed)
+
+#### MinifbVideo
+```rust
+pub struct MinifbVideo {
+    window: minifb::Window,         // X11 window
+    buffer: Vec<u32>,               // 32bpp backing buffer (width * height)
+    width: u32,                     // Window width
+    height: u32,                    // Window height
+    core_width: u32,                // Cached core resolution
+    core_height: u32,
+    offset_x: i32,                  // Letterbox offset X
+    offset_y: i32,                  // Letterbox offset Y
+    skip_frame: bool,
+    frame_drawn: bool,
+}
+```
+
+- **Window**: Created via `minifb::Window::new()` with configurable size, scale, borderless mode
+- **Buffer**: `Vec<u32>` sized to window dimensions, always 32bpp XRGB8888
+- **Letterboxing**: Same math as FbdevVideo, centered core frame within window
+- **Scaling**: Uses minifb `WindowOptions::scale` for integer scaling (X1/X2/X3/X4)
+- **Overlay**: Draws GUI overlay directly on buffer (simpler than fbdev — always 32bpp)
+- **Update**: `window.update_with_buffer()` each frame after overlay drawing
+
+### VideoBackend Trait
+
+Both `FbdevVideo` and `MinifbVideo` implement the `VideoBackend` trait, enabling backend-agnostic GUI rendering:
+
+```rust
+pub trait VideoBackend {
+    fn fb_width(&self) -> u32;
+    fn fb_height(&self) -> u32;
+    fn fb_bpp(&self) -> u32;
+    fn set_core_format(&mut self, core_w: u32, core_h: u32, bpp: u32);
+    fn set_skip_frame(&mut self);
+    fn push_frame(&mut self, pixels: *const c_void, w: u32, h: u32, pitch: usize);
+    fn draw_hline_overlay(&mut self, x1: i32, x2: i32, y: i32, color: u32);
+    fn draw_vline_overlay(&mut self, x: i32, y1: i32, y2: i32, color: u32);
+    fn draw_rect_overlay(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32);
+    fn draw_text_overlay(&mut self, x: i32, y: i32, text: &str, color: u32, font: &Font);
+}
+```
+
+- `Gui::render` takes `&mut dyn VideoBackend` — works with any backend
+- `FbdevVideo` and `MinifbVideo` share the same rendering interface
+- Backend selection at runtime via config file (`renderer: "fbdev"` or `"minifb"`)
+
 #### Video Refresh Callback
 ```rust
 extern "C" fn video_refresh_cb(pixels: *const c_void, w: u32, h: u32, pitch: usize) {
@@ -331,25 +385,37 @@ if let Some(state) = RESOLUTION_STATE.get() {
 ## Configuration & Persistence
 
 ### Config File
-Path: `{store_dir}/cfg/sdlretro.json` (same as C++ implementation)
+Path: `~/.config/rustsdlretro/config.json` (or `--config <path>` CLI override)
 
-```rust
-#[derive(Serialize, Deserialize)]
-struct Config {
-    resolution: Resolution,
-    scale: f32,
-    fullscreen: bool,
-    frame_limit: bool,
-    frame_delay: u32,
-    audio_volume: u32,
-    audio_device: Option<String>,
-    language: String,
-    save_check_interval: u32,
-    core_dirs: Vec<PathBuf>,
-    rom_dirs: Vec<PathBuf>,
-    store_dir: PathBuf,
+```json
+{
+    "renderer": "fbdev",
+    "window": {
+        "width": 640,
+        "height": 480,
+        "scale": 2,
+        "borderless": false,
+        "title": "rustsdlretro"
+    },
+    "input": {
+        "device": "/dev/input/event0"
+    }
 }
 ```
+
+**Fields**:
+- `renderer`: `"fbdev"` (framebuffer) or `"minifb"` (X11 windowed)
+- `window.*`: Only used when `renderer = "minifb"`
+  - `width`/`height`: Window dimensions
+  - `scale`: Integer scale factor (1-4)
+  - `borderless`: No window decorations (kiosk mode)
+  - `title`: Window title
+- `input.device`: Input device path (default: `/dev/input/event0`)
+
+**Feature flags**:
+- `default = ["fbdev"]` — framebuffer backend only
+- `minifb = ["dep:minifb"]` — adds X11 windowed backend
+- `config = ["dep:serde", "dep:serde_json"]` — adds JSON config parsing
 
 ### Save States
 - **SRAM**: `{store_dir}/saves/{core_name}/{game_name}.sav`
@@ -450,9 +516,10 @@ resolver = "2"
 - Enter: Confirm selection (for future action items)
 
 ### Phase 5: Full Integration 🔲 TODO
-- `sdlretro-frontend` binary tying everything together
-- Configuration, i18n, save states, ZIP ROM loading
-- Feature parity with existing C++ build
+- `sdlretro-frontend` binary tying everything together — ✅ DONE
+- Configuration system — ✅ DONE
+- i18n, save states, ZIP ROM loading — TODO
+- Feature parity with existing C++ build — TODO
 
 ### Phase 6: Hardening 🔲 TODO
 - Performance profiling and optimization (SIMD, threading)

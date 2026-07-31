@@ -4,7 +4,7 @@ Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emu
 
 ## Features
 
-- **Direct framebuffer rendering** - No X11, no SDL, direct `/dev/fb0` access
+- **Dual video backends** - Framebuffer (`/dev/fb0`) or X11 windowed (minifb) via config
 - **Libretro core support** - Reuses existing `.so` cores (snes9x, Genesis-Plus-GX, mGBA, etc.)
 - **Menu overlay** - Browse and modify core options with ESC key, navigation arrows, value cycling
 - **Dynamic resolution** - Handles cores that change resolution during gameplay (letterboxing)
@@ -12,6 +12,7 @@ Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emu
 - **Keyboard input** - evdev `/dev/input/event0` with SNES gamepad mapping
 - **Embedded bitmap fonts** - 8px and 16px tall fonts, no external font files needed
 - **Core options v1/v2** - Full support for libretro core options API
+- **JSON configuration** - Renderer selection, window settings, CLI `--config` override
 
 ## Architecture
 
@@ -19,14 +20,16 @@ Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emu
 rustsdlretro/
 ├── rustsdlretro-core/          # Core library
 │   ├── lib.rs              # Core lifecycle, FFI bindings, environment callback
-│   ├── video.rs            # FbdevVideo: mmap framebuffer, pixel conversion, letterboxing
+│   ├── video.rs            # VideoBackend trait + FbdevVideo: mmap framebuffer, pixel conversion
+│   ├── video_minifb.rs     # MinifbVideo: X11 windowed backend, buffer rendering
+│   ├── config.rs           # JSON config parsing, renderer selection
 │   ├── input.rs            # InputReader: evdev polling, key mapping, menu helpers
 │   ├── font.rs             # Bitmap font renderer with embedded glyph data
 │   ├── core_options.rs     # Core options v1/v2 API, value storage
 │   ├── gui.rs              # Menu overlay, navigation, rendering
 │   └── build.rs            # bindgen for libretro.h
 ├── rustsdlretro-frontend/      # Binary crate
-│   └── main.rs             # CLI entry point, main loop, GUI integration
+│   └── main.rs             # CLI entry point, config loading, backend selection, main loop
 └── doc/                    # Design documents
 ```
 
@@ -44,6 +47,17 @@ rustsdlretro/
 ```bash
 cargo build --release
 ```
+
+### Build with X11 windowed backend
+
+```bash
+cargo build --release --features minifb,config
+```
+
+**Feature flags**:
+- `default = ["fbdev"]` — framebuffer backend only
+- `minifb = ["dep:minifb"]` — adds X11 windowed backend
+- `config = ["dep:serde", "dep:serde_json"]` — adds JSON config parsing
 
 ### Cross-compile for Raspberry Pi
 
@@ -77,6 +91,31 @@ Example:
 
 System directory: `~/.config/rustsdlretro/`
 
+### Config File (`config.json`)
+
+```json
+{
+    "renderer": "fbdev",
+    "window": {
+        "width": 640,
+        "height": 480,
+        "scale": 2,
+        "borderless": false,
+        "title": "rustsdlretro"
+    },
+    "input": {
+        "device": "/dev/input/event0"
+    }
+}
+```
+
+**Fields**:
+- `renderer`: `"fbdev"` (framebuffer) or `"minifb"` (X11 windowed)
+- `window.*`: Only used when `renderer = "minifb"` (width, height, scale, borderless, title)
+- `input.device`: Input device path (default: `/dev/input/event0`)
+
+**CLI override**: `--config <path>` to specify a custom config file location.
+
 ## Supported Cores
 
 Tested with:
@@ -97,6 +136,8 @@ Any libretro core should work if it supports the standard libretro API.
 ### Completed
 - Core loading and lifecycle management
 - Framebuffer video output with letterboxing
+- X11 windowed video output (minifb) with scale modes
+- Abstracted VideoBackend trait for backend-agnostic rendering
 - evdev keyboard input with gamepad mapping
 - ALSA audio playback
 - Frame throttling with drift correction
@@ -105,10 +146,10 @@ Any libretro core should work if it supports the standard libretro API.
 - Core options v1/v2 support
 - GUI menu overlay with scrolling
 - Optimized overlay rendering (bulk memory writes, no flicker)
+- JSON configuration system with renderer selection
 
 ### Pending
 - ZIP ROM loading
-- Configuration file system
 - Save states / SRAM persistence
 - Language file loading (i18n)
 - ROM browser with core selector

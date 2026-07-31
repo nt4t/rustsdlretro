@@ -117,30 +117,30 @@ rustsdlretro-frontend/
 
 ## Implementation Phases
 
-### Phase 1: VideoBackend Trait
-1. Define `VideoBackend` trait in `video.rs` with all methods currently on `FbdevVideo`
-2. Implement the trait for `FbdevVideo` (move methods into `impl VideoBackend for FbdevVideo`)
-3. Update `Gui::render` to take `&mut dyn VideoBackend` instead of `&mut FbdevVideo`
-4. Update all call sites in `main.rs` to use trait objects
-5. `cargo check` to verify nothing breaks
+### Phase 1: VideoBackend Trait ✅ DONE
+1. ✅ Define `VideoBackend` trait in `video.rs` with all methods currently on `FbdevVideo`
+2. ✅ Implement the trait for `FbdevVideo` (move methods into `impl VideoBackend for FbdevVideo`)
+3. ✅ Update `Gui::render` to take `&mut dyn VideoBackend` instead of `&mut FbdevVideo`
+4. ✅ Update all call sites in `main.rs` to use trait objects
+5. ✅ `cargo check` to verify nothing breaks
 
-### Phase 2: MinifbVideo Implementation
-1. Add `minifb` as optional dependency with `minifb` feature flag
-2. Create `video_minifb.rs` with `MinifbVideo` struct
-3. Implement `VideoBackend` for `MinifbVideo`
-4. `MinifbVideo::new(width, height, opts)` — creates window + buffer
-5. `MinifbVideo::push_frame` — copies core frame into buffer with letterboxing
-6. `MinifbVideo::draw_*_overlay` — draw on buffer directly (32bpp only, simpler than fbdev)
-7. `MinifbVideo::update` — call `window.update_with_buffer()` each frame
-8. `MinifbVideo::is_open` — call `window.is_open()`
+### Phase 2: MinifbVideo Implementation ✅ DONE
+1. ✅ Add `minifb` as optional dependency with `minifb` feature flag
+2. ✅ Create `video_minifb.rs` with `MinifbVideo` struct
+3. ✅ Implement `VideoBackend` for `MinifbVideo`
+4. ✅ `MinifbVideo::new(width, height, opts)` — creates window + buffer
+5. ✅ `MinifbVideo::push_frame` — copies core frame into buffer with letterboxing
+6. ✅ `MinifbVideo::draw_*_overlay` — draw on buffer directly (32bpp only, simpler than fbdev)
+7. ✅ `MinifbVideo::update` — call `window.update_with_buffer()` each frame
+8. ✅ `MinifbVideo::is_open` — call `window.is_open()`
 
-### Phase 3: Config System
-1. Create `config.rs` with `Config` struct
-2. Parse JSON config (use `serde` + `serde_json`)
-3. Default config at `~/.config/rustsdlretro/config.json`
-4. CLI `--config <path>` override
-5. `renderer` field determines which backend to instantiate
-6. Window config fields for minifb settings
+### Phase 3: Config System ✅ DONE
+1. ✅ Create `config.rs` with `Config` struct
+2. ✅ Parse JSON config (use `serde` + `serde_json`)
+3. ✅ Default config at `~/.config/rustsdlretro/config.json`
+4. ✅ CLI `--config <path>` override
+5. ✅ `renderer` field determines which backend to instantiate
+6. ✅ Window config fields for minifb settings
 
 ### Phase 4: Minifb Input (Optional)
 1. Create `input_minifb.rs` with `MinifbInputReader`
@@ -148,11 +148,11 @@ rustsdlretro-frontend/
 3. Map minifb `Key` → evdev keycode
 4. Shared `Arc<Mutex<dyn InputBackend>>` pattern
 
-### Phase 5: Frontend Integration
-1. Update `main.rs` to load config
-2. Select backend based on config
-3. Handle both backends in the main loop
-4. Graceful shutdown on window close
+### Phase 5: Frontend Integration ✅ DONE
+1. ✅ Update `main.rs` to load config
+2. ✅ Select backend based on config
+3. ✅ Handle both backends in the main loop
+4. ✅ Graceful shutdown on window close
 
 ## MinifbVideo Method Details
 
