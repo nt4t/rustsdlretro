@@ -1,6 +1,6 @@
 use rustsdlretro_core::Core;
-use rustsdlretro_core::video::FbdevVideo;
 use rustsdlretro_core::video::VideoBackend;
+use rustsdlretro_core::config::{Config, Renderer};
 use rustsdlretro_core::input::InputReader;
 use rustsdlretro_core::gui::Gui;
 use rustsdlretro_core::Throttle;
@@ -48,6 +48,30 @@ extern "C" fn input_state_cb(port: u32, device: u32, index: u32, id: u32) -> i16
 
 static mut MAIN_INPUT: *mut InputReader = std::ptr::null_mut();
 
+fn create_video_backend(config: &Config) -> Box<dyn VideoBackend> {
+    match config.renderer {
+        Renderer::Fbdev => {
+            eprintln!("Opening framebuffer...");
+            let video = rustsdlretro_core::video::FbdevVideo::new()
+                .expect("Failed to open framebuffer");
+            eprintln!("Framebuffer: {}x{}bpp", video.fb_width(), video.fb_bpp());
+            Box::new(video)
+        }
+        Renderer::Minifb => {
+            eprintln!("Opening minifb window ({}x{})...", config.window.width, config.window.height);
+            let video = rustsdlretro_core::video_minifb::MinifbVideo::new(
+                config.window.width,
+                config.window.height,
+                config.window.scale,
+                config.window.borderless,
+                &config.window.title,
+            ).expect("Failed to create minifb window");
+            eprintln!("Minifb window ready: {}x{}", video.fb_width(), video.fb_height());
+            Box::new(video)
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
@@ -58,12 +82,12 @@ fn main() {
     let core_path = &args[1];
     let rom_path = &args[2];
 
-    eprintln!("Opening framebuffer...");
-    let video = match FbdevVideo::new() {
-        Ok(v) => v,
-        Err(e) => { eprintln!("Failed to open framebuffer: {}", e); std::process::exit(1); }
-    };
-    eprintln!("Framebuffer: {}x{}bpp", video.fb_width(), video.fb_bpp());
+    // Load config
+    let config = Config::load_default();
+    eprintln!("Renderer: {:?}", config.renderer);
+
+    // Create video backend based on config
+    let video = create_video_backend(&config);
 
     eprintln!("Opening keyboard input...");
     let input = match InputReader::new() {
@@ -94,7 +118,7 @@ fn main() {
     eprintln!("Init OK");
 
     unsafe {
-        rustsdlretro_core::MAIN_VIDEO = Some(ManuallyDrop::new(Box::new(video)));
+        rustsdlretro_core::MAIN_VIDEO = Some(ManuallyDrop::new(video));
         MAIN_INPUT = Box::into_raw(Box::new(input));
     }
 
@@ -226,6 +250,13 @@ fn main() {
             }
         }
 
+        // For minifb, we need to update the window each frame
+        unsafe {
+            if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
+                (*v).update_window();
+            }
+        }
+
         let now = std::time::Instant::now();
         if now.duration_since(last_fps_time).as_secs() >= 5 {
             let elapsed_secs = now.duration_since(last_fps_time).as_secs_f64();
@@ -247,10 +278,8 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
         // Drop the video backend
-        unsafe {
-            if let Some(manually_drop) = rustsdlretro_core::MAIN_VIDEO.take() {
-                let _ = ManuallyDrop::into_inner(manually_drop);
-            }
+        if let Some(manually_drop) = rustsdlretro_core::MAIN_VIDEO.take() {
+            let _ = ManuallyDrop::into_inner(manually_drop);
         }
         if !MAIN_INPUT.is_null() {
             let _ = Box::from_raw(MAIN_INPUT);

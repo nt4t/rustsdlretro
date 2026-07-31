@@ -380,4 +380,12 @@ impl VideoBackend for MinifbVideo {
     fn fb_bpp(&self) -> u32 {
         MinifbVideo::fb_bpp(self)
     }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        Some(self)
+    }
+
+    fn update_window(&mut self) {
+        MinifbVideo::update(self);
+    }
 }

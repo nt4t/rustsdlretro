@@ -55,6 +55,12 @@ pub trait VideoBackend {
 
     /// Get the display bpp
     fn fb_bpp(&self) -> u32;
+
+    /// Check if this backend is MinifbVideo (for calling update_window)
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any>;
+
+    /// Update the window (minifb only)
+    fn update_window(&mut self);
 }
 
 // ioctl constants for fbdev
@@ -594,5 +600,13 @@ impl VideoBackend for FbdevVideo {
 
     fn fb_bpp(&self) -> u32 {
         FbdevVideo::fb_bpp(self)
+    }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
+    }
+
+    fn update_window(&mut self) {
+        // No-op for fbdev
     }
 }
