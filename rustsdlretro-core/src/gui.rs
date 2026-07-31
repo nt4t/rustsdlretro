@@ -3,7 +3,7 @@
 
 use crate::core_options::CoreOptionDefinition;
 use crate::input::InputReader;
-use crate::video::FbdevVideo;
+use crate::video::VideoBackend;
 
 /// Current state of the GUI
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,8 +434,8 @@ impl Gui {
         self.state.clone()
     }
 
- /// Render the GUI overlay on the framebuffer
-    pub fn render(&mut self, video: &mut FbdevVideo, fb_width: u32, fb_height: u32) {
+ /// Render the GUI overlay on the video backend
+    pub fn render(&mut self, video: &mut dyn VideoBackend, fb_width: u32, fb_height: u32) {
         if self.clear_needed {
             video.clear_overlay(fb_width, fb_height);
             self.clear_needed = false;

@@ -5,6 +5,8 @@ use std::ptr;
 use std::sync::{Arc, Mutex};
 use std::mem::ManuallyDrop;
 
+pub use video::VideoBackend;
+
 use libc::{c_void, dlopen, dlsym, dlerror, RTLD_LAZY, dlclose};
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
@@ -15,6 +17,12 @@ pub mod audio;
 pub mod font;
 pub mod core_options;
 pub mod gui;
+
+#[cfg(feature = "minifb")]
+pub mod video_minifb;
+
+#[cfg(feature = "config")]
+pub mod config;
 
 pub struct ResolutionState {
     pub width: u32,
@@ -252,9 +260,8 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
 
                     if changed {
                         unsafe {
-                            if !video::MAIN_VIDEO.is_null() {
-                                let video = &mut *(video::MAIN_VIDEO as *mut video::FbdevVideo);
-                                video.set_core_format(w, h, video::CORE_FORMAT.bpp);
+                            if let Some(ref mut v) = MAIN_VIDEO {
+                                (*v).set_core_format(w, h, video::CORE_FORMAT.bpp);
                             }
                         }
                     }
@@ -365,6 +372,9 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
 static mut SYSTEM_DIR: *const libc::c_char = ptr::null();
 static RESOLUTION_STATE: std::sync::OnceLock<Arc<Mutex<ResolutionState>>> = std::sync::OnceLock::new();
 pub static mut MAIN_AUDIO: *mut c_void = ptr::null_mut();
+// Video backend stored as a raw pointer to a boxed trait object
+// Only accessed from main thread, no synchronization needed
+pub static mut MAIN_VIDEO: Option<ManuallyDrop<Box<dyn video::VideoBackend>>> = None;
 
 pub fn set_resolution_state(state: Arc<Mutex<ResolutionState>>) {
     RESOLUTION_STATE.set(state).ok();

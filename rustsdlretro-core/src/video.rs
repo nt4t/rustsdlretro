@@ -5,6 +5,58 @@ use std::ffi::CString;
 
 use crate::font;
 
+/// Generic video backend trait for rendering core frames and GUI overlays.
+/// Both FbdevVideo and MinifbVideo implement this trait.
+pub trait VideoBackend {
+    /// Push a frame from the core to the display
+    fn push_frame(&mut self, pixels: *const c_void, frame_w: u32, frame_h: u32, pitch: usize);
+
+    /// Set the core format (resolution)
+    fn set_core_format(&mut self, width: u32, height: u32, bpp: u32);
+
+    /// Set skip_frame flag (next frame will be skipped)
+    fn set_skip_frame(&mut self);
+
+    /// Clear the overlay area
+    fn clear_overlay(&mut self, fb_width: u32, fb_height: u32);
+
+    /// Draw a single pixel
+    fn draw_pixel_overlay(&mut self, x: i32, y: i32, color: u32);
+
+    /// Draw a horizontal line
+    fn draw_hline_overlay(&mut self, x1: i32, x2: i32, y: i32, color: u32);
+
+    /// Draw a vertical line
+    fn draw_vline_overlay(&mut self, x: i32, y1: i32, y2: i32, color: u32);
+
+    /// Draw a filled rectangle
+    fn draw_rect_overlay(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32);
+
+    /// Draw text
+    fn draw_text_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32);
+
+    /// Draw big text
+    fn draw_text_big_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32);
+
+    /// Draw a character
+    fn draw_char_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32);
+
+    /// Draw a big character
+    fn draw_char_big_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32);
+
+    /// Check if a frame was drawn
+    fn frame_drawn(&self) -> bool;
+
+    /// Get the display width
+    fn fb_width(&self) -> u32;
+
+    /// Get the display height
+    fn fb_height(&self) -> u32;
+
+    /// Get the display bpp
+    fn fb_bpp(&self) -> u32;
+}
+
 // ioctl constants for fbdev
 const FBIOGET_FSCREENINFO: c_uint = 0x4602;
 const FBIOGET_VSCREENINFO: c_uint = 0x4600;
@@ -88,7 +140,6 @@ impl CoreFormat {
 }
 
 pub static mut CORE_FORMAT: CoreFormat = CoreFormat::UNINITIALIZED;
-pub static mut MAIN_VIDEO: *mut c_void = ptr::null_mut();
 
 #[inline]
 fn xrgb8888_to_rgb565(p: u32) -> u16 {
@@ -477,5 +528,71 @@ impl Drop for FbdevVideo {
                 self.fb_fd = -1;
             }
         }
+    }
+}
+
+impl VideoBackend for FbdevVideo {
+    fn push_frame(&mut self, pixels: *const c_void, frame_w: u32, frame_h: u32, pitch: usize) {
+        FbdevVideo::push_frame(self, pixels, frame_w, frame_h, pitch)
+    }
+
+    fn set_core_format(&mut self, width: u32, height: u32, bpp: u32) {
+        FbdevVideo::set_core_format(self, width, height, bpp)
+    }
+
+    fn set_skip_frame(&mut self) {
+        FbdevVideo::set_skip_frame(self)
+    }
+
+    fn clear_overlay(&mut self, fb_width: u32, fb_height: u32) {
+        FbdevVideo::clear_overlay(self, fb_width, fb_height)
+    }
+
+    fn draw_pixel_overlay(&mut self, x: i32, y: i32, color: u32) {
+        FbdevVideo::draw_pixel_overlay(self, x, y, color)
+    }
+
+    fn draw_hline_overlay(&mut self, x1: i32, x2: i32, y: i32, color: u32) {
+        FbdevVideo::draw_hline_overlay(self, x1, x2, y, color)
+    }
+
+    fn draw_vline_overlay(&mut self, x: i32, y1: i32, y2: i32, color: u32) {
+        FbdevVideo::draw_vline_overlay(self, x, y1, y2, color)
+    }
+
+    fn draw_rect_overlay(&mut self, x1: i32, y1: i32, x2: i32, y2: i32, color: u32) {
+        FbdevVideo::draw_rect_overlay(self, x1, y1, x2, y2, color)
+    }
+
+    fn draw_text_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32) {
+        FbdevVideo::draw_text_overlay(self, x, y, text, color)
+    }
+
+    fn draw_text_big_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32) {
+        FbdevVideo::draw_text_big_overlay(self, x, y, text, color)
+    }
+
+    fn draw_char_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32) {
+        FbdevVideo::draw_char_overlay(self, x, y, ch, color)
+    }
+
+    fn draw_char_big_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32) {
+        FbdevVideo::draw_char_big_overlay(self, x, y, ch, color)
+    }
+
+    fn frame_drawn(&self) -> bool {
+        FbdevVideo::frame_drawn(self)
+    }
+
+    fn fb_width(&self) -> u32 {
+        FbdevVideo::fb_width(self)
+    }
+
+    fn fb_height(&self) -> u32 {
+        FbdevVideo::fb_height(self)
+    }
+
+    fn fb_bpp(&self) -> u32 {
+        FbdevVideo::fb_bpp(self)
     }
 }

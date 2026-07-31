@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rustsdlretro-core = { path = "../rustsdlretro-core" }
+rustsdlretro-core = { path = "../rustsdlretro-core", features = ["fbdev", "minifb", "config"] }
 libc = "0.2"

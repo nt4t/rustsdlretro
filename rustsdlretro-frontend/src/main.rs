@@ -1,5 +1,6 @@
 use rustsdlretro_core::Core;
 use rustsdlretro_core::video::FbdevVideo;
+use rustsdlretro_core::video::VideoBackend;
 use rustsdlretro_core::input::InputReader;
 use rustsdlretro_core::gui::Gui;
 use rustsdlretro_core::Throttle;
@@ -8,7 +9,7 @@ use std::path::Path;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use std::mem::ManuallyDrop;
 
@@ -26,9 +27,8 @@ fn setup_signal_handler() {
 
 extern "C" fn video_refresh_cb(pixels: *const c_void, w: u32, h: u32, pitch: usize) {
     unsafe {
-        if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
-            let video = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
-            video.push_frame(pixels, w, h, pitch);
+        if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
+            (*v).push_frame(pixels, w, h, pitch);
         }
     }
 }
@@ -93,9 +93,10 @@ fn main() {
     }
     eprintln!("Init OK");
 
-    // Store video and input in statics for callbacks
-    unsafe { rustsdlretro_core::video::MAIN_VIDEO = Box::into_raw(Box::new(video)) as *mut c_void; }
-    unsafe { MAIN_INPUT = Box::into_raw(Box::new(input)); }
+    unsafe {
+        rustsdlretro_core::MAIN_VIDEO = Some(ManuallyDrop::new(Box::new(video)));
+        MAIN_INPUT = Box::into_raw(Box::new(input));
+    }
 
     // Set input callbacks before loading ROM
     core.set_callbacks(
@@ -134,9 +135,8 @@ fn main() {
     eprintln!("AV: {}x{} @ {:.2} FPS", core_w, core_h, fps);
 
     unsafe {
-        if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
-            let v = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
-            v.set_core_format(core_w, core_h, 32);
+        if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
+            (*v).set_core_format(core_w, core_h, 32);
         }
     }
 
@@ -176,9 +176,8 @@ fn main() {
     while RUNNING.load(Ordering::SeqCst) {
         // Handle GUI input
         let menu_open = unsafe {
-            if !rustsdlretro_core::video::MAIN_VIDEO.is_null() && !MAIN_INPUT.is_null() {
-                let v = &*(rustsdlretro_core::video::MAIN_VIDEO as *const rustsdlretro_core::video::FbdevVideo);
-                gui.handle_input(&*MAIN_INPUT, v.fb_height()) == rustsdlretro_core::gui::GuiState::MenuOpen
+            if let (Some(video), Some(input)) = (rustsdlretro_core::MAIN_VIDEO.as_ref(), MAIN_INPUT.as_ref()) {
+                gui.handle_input(&*input, (*video).fb_height()) == rustsdlretro_core::gui::GuiState::MenuOpen
             } else {
                 false
             }
@@ -212,18 +211,18 @@ fn main() {
             }
         } else {
             unsafe {
-                if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
-                    let v = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
-                    v.set_skip_frame();
+                if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
+                    (*v).set_skip_frame();
                 }
             }
         }
 
         // Render GUI overlay
         unsafe {
-            if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
-                let v = &mut *(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
-                gui.render(v, v.fb_width(), v.fb_height());
+            if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
+                let w = (**v).fb_width();
+                let h = (**v).fb_height();
+                gui.render(&mut ***v, w, h);
             }
         }
 
@@ -247,8 +246,11 @@ fn main() {
             let _ = Box::from_raw(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver);
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
-        if !rustsdlretro_core::video::MAIN_VIDEO.is_null() {
-            let _ = Box::from_raw(rustsdlretro_core::video::MAIN_VIDEO as *mut rustsdlretro_core::video::FbdevVideo);
+        // Drop the video backend
+        unsafe {
+            if let Some(manually_drop) = rustsdlretro_core::MAIN_VIDEO.take() {
+                let _ = ManuallyDrop::into_inner(manually_drop);
+            }
         }
         if !MAIN_INPUT.is_null() {
             let _ = Box::from_raw(MAIN_INPUT);
