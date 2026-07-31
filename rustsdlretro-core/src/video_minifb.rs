@@ -117,10 +117,11 @@ impl MinifbVideo {
         let offset_x = ((self.width as i32) - frame_w) / 2;
         let offset_y = ((self.height as i32) - frame_h) / 2;
 
-        // Minifb always uses 32bpp XRGB8888 (little-endian: B|G|R|0x00)
-        // We need to convert based on the core's pixel format
+        // Minifb expects ARGB8888 (u32 value 0xAARRGGBB). On little-endian the
+        // in-memory byte order is B-G-R-A, so ARGB 0xAARRGGBB maps to bytes
+        // BB GG RR AA in memory.
         if core_bpp == 32 {
-            // Core is XRGB8888 - need to convert to minifb's BGR format (0x00RRGGBB -> 0xBBGGRR00)
+            // Core is XRGB8888 - convert to minifb ARGB8888
             for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u32).add((y as usize) * (pitch / 4)) };
                 let row = (offset_y + y) as usize;
@@ -129,17 +130,17 @@ impl MinifbVideo {
                     let mut dest = self.buffer.as_mut_ptr().add(dest_offset);
                     for x in 0..frame_w {
                         let pixel = *src_row.add(x as usize);
-                        // XRGB8888 -> minifb format (swap R and B)
                         let r = (pixel >> 16) & 0xFF;
                         let g = (pixel >> 8) & 0xFF;
                         let b = pixel & 0xFF;
-                        *dest = (b << 16) | (g << 8) | r;
+                        // ARGB8888: 0xAARRGGBB
+                        *dest = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
                         dest = dest.add(1);
                     }
                 }
             }
         } else if core_bpp == 16 {
-            // Core is RGB565 - convert to minifb format
+            // Core is RGB565 - convert to minifb ARGB8888
             for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u16).add((y as usize) * (pitch / 2)) };
                 let row = (offset_y + y) as usize;
@@ -148,16 +149,14 @@ impl MinifbVideo {
                     let mut dest = self.buffer.as_mut_ptr().add(dest_offset);
                     for x in 0..frame_w {
                         let pixel = *src_row.add(x as usize);
-                        // RGB565 -> minifb format (BGR888)
                         let r5 = (pixel >> 11) & 0x1F;
                         let g6 = (pixel >> 5) & 0x3F;
                         let b5 = pixel & 0x1F;
-                        // Expand to 8-bit
                         let r = ((r5 << 3) | (r5 >> 2)) as u32;
                         let g = ((g6 << 2) | (g6 >> 4)) as u32;
                         let b = ((b5 << 3) | (b5 >> 2)) as u32;
-                        // minifb expects BGR format (blue in high byte)
-                        *dest = (b << 16) | (g << 8) | r;
+                        // ARGB8888: 0xAARRGGBB
+                        *dest = 0xFF000000 | (r << 16) | (g << 8) | b;
                         dest = dest.add(1);
                     }
                 }
@@ -187,7 +186,7 @@ impl MinifbVideo {
         let g = (color >> 8) & 0xFF;
         let b = color & 0xFF;
         let offset = (y as usize) * self.width as usize + (x as usize);
-        self.buffer[offset] = (b << 16) | (g << 8) | r;
+        self.buffer[offset] = 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 
     /// Draw a horizontal line (optimized bulk write)
@@ -204,7 +203,7 @@ impl MinifbVideo {
         let r = (color >> 16) & 0xFF;
         let g = (color >> 8) & 0xFF;
         let b = color & 0xFF;
-        let minifb_color = (b << 16) | (g << 8) | r;
+        let minifb_color = 0xFF000000 | (r << 16) | (g << 8) | b;
         let row = (y as usize) * self.width as usize;
         unsafe {
             let mut dest = self.buffer.as_mut_ptr().add(row + (x1 as usize));
@@ -229,7 +228,7 @@ impl MinifbVideo {
         let r = (color >> 16) & 0xFF;
         let g = (color >> 8) & 0xFF;
         let b = color & 0xFF;
-        let minifb_color = (b << 16) | (g << 8) | r;
+        let minifb_color = 0xFF000000 | (r << 16) | (g << 8) | b;
         let x_offset = x as usize;
 
         unsafe {
@@ -253,7 +252,7 @@ impl MinifbVideo {
         let r = (color >> 16) & 0xFF;
         let g = (color >> 8) & 0xFF;
         let b = color & 0xFF;
-        let minifb_color = (b << 16) | (g << 8) | r;
+        let minifb_color = 0xFF000000 | (r << 16) | (g << 8) | b;
         let width = (x2 - x1) as usize;
 
         for y in y1..y2 {
