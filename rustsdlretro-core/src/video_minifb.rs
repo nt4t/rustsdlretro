@@ -41,7 +41,7 @@ impl MinifbVideo {
 
         let opts = WindowOptions {
             scale: scale_factor,
-            scale_mode: ScaleMode::Center,
+            scale_mode: ScaleMode::Stretch,
             borderless,
             resize: false,
             title: true,
@@ -139,7 +139,7 @@ impl MinifbVideo {
                 }
             }
         } else if core_bpp == 16 {
-            // Core is RGB565 - convert to XRGB8888 then to minifb format
+            // Core is RGB565 - convert to minifb format
             for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u16).add((y as usize) * (pitch / 2)) };
                 let row = (offset_y + y) as usize;
@@ -148,14 +148,15 @@ impl MinifbVideo {
                     let mut dest = self.buffer.as_mut_ptr().add(dest_offset);
                     for x in 0..frame_w {
                         let pixel = *src_row.add(x as usize);
-                        // RGB565 -> XRGB8888
+                        // RGB565 -> minifb format (BGR888)
                         let r5 = (pixel >> 11) & 0x1F;
                         let g6 = (pixel >> 5) & 0x3F;
                         let b5 = pixel & 0x1F;
+                        // Expand to 8-bit
                         let r = ((r5 << 3) | (r5 >> 2)) as u32;
                         let g = ((g6 << 2) | (g6 >> 4)) as u32;
                         let b = ((b5 << 3) | (b5 >> 2)) as u32;
-                        // minifb format
+                        // minifb expects BGR format (blue in high byte)
                         *dest = (b << 16) | (g << 8) | r;
                         dest = dest.add(1);
                     }
@@ -171,10 +172,10 @@ impl MinifbVideo {
     }
 
     /// Clear the overlay area (fill with black)
+    /// For minifb, we don't clear the entire buffer to preserve the frame
     pub fn clear_overlay(&mut self, _fb_width: u32, _fb_height: u32) {
-        for pixel in self.buffer.iter_mut() {
-            *pixel = 0x000000;
-        }
+        // Don't clear the entire buffer - the frame should remain visible
+        // Only the menu area will be drawn over the frame
     }
 
     /// Draw a single pixel (32bpp only)
