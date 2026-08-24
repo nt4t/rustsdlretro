@@ -61,6 +61,9 @@ pub trait VideoBackend {
 
     /// Update the window (minifb only)
     fn update_window(&mut self);
+
+    /// Check if the backend requests to close (minifb ESC only)
+    fn should_close(&self) -> bool;
 }
 
 // ioctl constants for fbdev
@@ -608,5 +611,9 @@ impl VideoBackend for FbdevVideo {
 
     fn update_window(&mut self) {
         // No-op for fbdev
+    }
+
+    fn should_close(&self) -> bool {
+        false
     }
 }

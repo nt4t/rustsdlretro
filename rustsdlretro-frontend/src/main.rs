@@ -204,6 +204,16 @@ fn main() {
 
     while RUNNING.load(Ordering::SeqCst) {
 
+        // Check if minifb window requests close (ESC)
+        unsafe {
+            if let Some(ref video) = rustsdlretro_core::MAIN_VIDEO {
+                if (*video).should_close() {
+                    eprintln!("Window close requested");
+                    break;
+                }
+            }
+        }
+
         // Handle GUI input
         let menu_open = unsafe {
             if let (Some(video), Some(input)) = (rustsdlretro_core::MAIN_VIDEO.as_ref(), MAIN_INPUT.as_ref()) {

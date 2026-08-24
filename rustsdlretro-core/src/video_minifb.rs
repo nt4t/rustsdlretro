@@ -85,6 +85,11 @@ impl MinifbVideo {
         self.window.is_key_down(key)
     }
 
+    /// Check if the window should close (ESC pressed)
+    pub fn should_close(&self) -> bool {
+        self.window.is_key_down(Key::Escape)
+    }
+
     /// Set the core format (resolution)
     pub fn set_core_format(&mut self, width: u32, height: u32, _bpp: u32) {
         self.core_width = width;
@@ -390,5 +395,9 @@ impl VideoBackend for MinifbVideo {
 
     fn update_window(&mut self) {
         MinifbVideo::update(self);
+    }
+
+    fn should_close(&self) -> bool {
+        MinifbVideo::should_close(self)
     }
 }
