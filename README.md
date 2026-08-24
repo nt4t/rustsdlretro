@@ -1,18 +1,21 @@
 # rustsdlretro
 
-Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emulators on embedded Linux hardware (Raspberry Pi, retroPie devices) without X11 or SDL dependencies.
+Simple rust libretro frontend for Linux. Runs retro game emulators on:
+- **Embedded Linux** (Raspberry Pi, RetroPie) via framebuffer with no X11 needed
+- **Desktop Linux** via X11 windowed mode
 
 ## Features
 
-- **Dual video backends** - Framebuffer (`/dev/fb0`) default; X11 windowed (minifb) via `--features minifb`
-- **Libretro core support** - Reuses existing `.so` cores (snes9x, Genesis-Plus-GX, mGBA, etc.)
+- **Dual video backends** - Framebuffer (`/dev/fb0`) for embedded; X11 windowed (minifb) for desktop
+- **Libretro core support** - Reuses existing `.so` cores (snes9x, Genesis-Plus-GX, mGBA, FCEUmm, etc.)
 - **Menu overlay** - Browse and modify core options with ESC key, navigation arrows, value cycling
 - **Dynamic resolution** - Handles cores that change resolution during gameplay (letterboxing)
-- **Audio playback** - ALSA PCM output with ring buffer
-- **Keyboard input** - evdev `/dev/input/event0` with SNES gamepad mapping
+- **Audio playback** - ALSA PCM output with ring buffer; null driver fallback for testing
+- **Keyboard input** - evdev `/dev/input/event0` (embedded) or minifb keyboard polling (desktop)
 - **Embedded bitmap fonts** - 8px and 16px tall fonts, no external font files needed
 - **Core options v1/v2** - Full support for libretro core options API
-- **JSON configuration** - Renderer selection, window settings (requires `--features config`)
+- **JSON configuration** - Renderer selection, window settings, input device (requires `--features config`)
+- **Launcher scripts** - `start_nes.sh` and `start_snes.sh` for quick ROM launching
 
 ## Architecture
 
@@ -23,13 +26,15 @@ rustsdlretro/
 │   ├── video.rs            # VideoBackend trait + FbdevVideo: mmap framebuffer, pixel conversion
 │   ├── video_minifb.rs     # MinifbVideo: X11 windowed backend, buffer rendering
 │   ├── config.rs           # JSON config parsing, renderer selection
-│   ├── input.rs            # InputReader: evdev polling, key mapping, menu helpers
+│   ├── input.rs            # InputReader: evdev polling + minifb keyboard polling
 │   ├── font.rs             # Bitmap font renderer with embedded glyph data
 │   ├── core_options.rs     # Core options v1/v2 API, value storage
 │   ├── gui.rs              # Menu overlay, navigation, rendering
 │   └── build.rs            # bindgen for libretro.h
 ├── rustsdlretro-frontend/      # Binary crate
 │   └── main.rs             # CLI entry point, config loading, backend selection, main loop
+├── start_nes.sh              # Launcher script for NES games
+├── start_snes.sh             # Launcher script for SNES games
 └── doc/                    # Design documents
 ```
 
@@ -38,27 +43,35 @@ rustsdlretro/
 ### Prerequisites
 
 - Rust toolchain (edition 2021)
-- Linux with framebuffer support (`/dev/fb0`)
+- Linux with framebuffer support (`/dev/fb0`) **or** X11 (for minifb)
 - ALSA development libraries
+- X11 development libraries (for minifb: `libx11-dev`)
 - Cross-compile toolchain for ARM (optional, for Raspberry Pi)
 
 ### Build
 
+**Framebuffer-only (embedded)**:
 ```bash
 cargo build --release
 ```
 
-### Build with X11 windowed backend + JSON config
-
+**Desktop with X11 window + JSON config**:
 ```bash
 cargo build --release --features minifb,config
 ```
 
-**Feature flags** (defined in `rustsdlretro-core`):
-- `default = ["fbdev"]` — framebuffer backend only
-- `fbdev` — framebuffer (`/dev/fb0`) video output
-- `minifb = ["dep:minifb"]` — X11 windowed backend via minifb
-- `config = ["dep:serde", "dep:serde_json"]` — JSON config file parsing
+**Feature flags**:
+
+| Crate | Flag | Description |
+|-------|------|-------------|
+| `rustsdlretro-core` | `default = ["fbdev"]` | Framebuffer backend only |
+| `rustsdlretro-core` | `fbdev` | Framebuffer (`/dev/fb0`) video output |
+| `rustsdlretro-core` | `minifb = ["dep:minifb"]` | X11 windowed backend via minifb |
+| `rustsdlretro-core` | `config = ["dep:serde", "dep:serde_json"]` | JSON config file parsing |
+| `rustsdlretro-core` | `null-audio` | Null/silent audio driver fallback |
+| `rustsdlretro-frontend` | `minifb` | Enables minifb keyboard polling |
+| `rustsdlretro-frontend` | `config` | Enables config-based renderer selection |
+| `rustsdlretro-frontend` | `null-audio` | Enables null audio driver fallback |
 
 **Default build**: `cargo build --release` produces a framebuffer-only binary.
 
@@ -75,10 +88,16 @@ cargo build --release --target armv7-unknown-linux-gnueabihf
 ./target/release/rustsdlretro <core.so> <game.rom>
 ```
 
-Example:
+### Launcher Scripts
+
+Quick launch scripts are provided for common consoles:
 
 ```bash
-./target/release/rustsdlretro ~/snes9x2010_libretro.so ~/roms/snes/Super\ Mario\ World.smc
+# NES
+./start_nes.sh
+
+# SNES
+./start_snes.sh
 ```
 
 ### Controls

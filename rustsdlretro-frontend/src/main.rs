@@ -207,8 +207,18 @@ fn main() {
             unsafe { rustsdlretro_core::MAIN_AUDIO = Box::into_raw(Box::new(driver)) as *mut c_void; }
         }
         Err(e) => {
-            eprintln!("Failed to initialize audio (silent mode): {}", e);
-            unsafe { rustsdlretro_core::MAIN_AUDIO = ptr::null_mut(); }
+            eprintln!("ALSA audio unavailable: {}", e);
+            #[cfg(feature = "null-audio")]
+            {
+                eprintln!("Falling back to null audio driver (silent mode)");
+                let null_driver = rustsdlretro_core::audio_null::NullAudioDriver::new(sample_rate_u32);
+                unsafe { rustsdlretro_core::MAIN_AUDIO = Box::into_raw(Box::new(null_driver)) as *mut c_void; }
+            }
+            #[cfg(not(feature = "null-audio"))]
+            {
+                eprintln!("No null-audio feature compiled. Audio will be silent.");
+                unsafe { rustsdlretro_core::MAIN_AUDIO = ptr::null_mut(); }
+            }
         }
     }
 
@@ -313,9 +323,19 @@ fn main() {
     unsafe {
         if !rustsdlretro_core::MAIN_AUDIO.is_null() {
             eprintln!("Stopping audio...");
-            let audio = &mut *(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver);
-            audio.stop();
-            let _ = Box::from_raw(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver);
+            #[cfg(feature = "null-audio")]
+            {
+                // Try to stop as null audio driver first
+                let null_audio = &mut *(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio_null::NullAudioDriver);
+                null_audio.stop();
+                let _ = Box::from_raw(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio_null::NullAudioDriver);
+            }
+            #[cfg(not(feature = "null-audio"))]
+            {
+                let audio = &mut *(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver);
+                audio.stop();
+                let _ = Box::from_raw(rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver);
+            }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
         // Drop the video backend

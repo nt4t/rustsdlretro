@@ -8,6 +8,7 @@ default = ["fbdev"]
 fbdev = []
 minifb = ["dep:minifb"]
 config = ["dep:serde", "dep:serde_json"]
+null-audio = []
 
 [dependencies]
 libc = "0.2"

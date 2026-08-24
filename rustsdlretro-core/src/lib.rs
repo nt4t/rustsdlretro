@@ -14,6 +14,8 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 pub mod video;
 pub mod input;
 pub mod audio;
+#[cfg(feature = "null-audio")]
+pub mod audio_null;
 pub mod font;
 pub mod core_options;
 pub mod gui;

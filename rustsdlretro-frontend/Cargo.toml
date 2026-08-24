@@ -7,6 +7,7 @@ edition = "2021"
 default = []
 minifb = ["rustsdlretro-core/minifb"]
 config = ["rustsdlretro-core/config"]
+null-audio = ["rustsdlretro-core/null-audio"]
 
 [dependencies]
 rustsdlretro-core = { path = "../rustsdlretro-core", default-features = false, features = ["minifb", "config"] }
