@@ -74,8 +74,25 @@ Core (60 FPS, ~1600 samples/frame)
 ## Current Status
 
 - **FPS**: Stable at 60.1 FPS (target: 60.10 FPS for NES)
-- **Audio**: ALSA buffer configured with 256ms buffer / 64ms period for smooth playback
-- **Ring buffer**: 262k samples (6s capacity), drains to 0 between reads but accumulation buffer smooths playback
+- **Audio**: Smooth playback confirmed
+- **Ring buffer**: Always shows 0/262144 — this is expected and not a problem (see below)
+
+### Why Ring Buffer is Empty (but audio is smooth)
+
+The ring buffer consistently drains to 0, yet audio plays smoothly. This is because:
+
+1. **ALSA hardware buffer (256ms) provides the smoothing** — not the ring buffer
+2. **Accumulation buffer batches writes** — 8k samples per ALSA write (~15Hz instead of 60Hz)
+3. **Ring buffer is a pass-through** — samples flow Core → Ring → Accumulation → ALSA → Sound Card
+
+```log
+# Typical playback log:
+audio: rb=0/262144 (0.0s), accum=4948/8192   # Ring empty, accum fluctuating
+audio: rb=0/262144 (0.0s), accum=3304/8192   # Still empty, smooth playback
+audio: rb=172/262144 (0.0s), accum=0/8192    # Rarely fills slightly
+```
+
+The ALSA 256ms buffer holds ~12,288 samples, providing ~256ms of audio buffer independent of the ring buffer. This is what makes audio smooth.
 
 ## Related Files
 

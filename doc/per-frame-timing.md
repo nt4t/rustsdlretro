@@ -68,6 +68,32 @@ When behind schedule, `next_frame = now + frame_time` reset the schedule to the 
 
 **Fix:** Changed to `next_frame += frame_time` to advance the schedule by one frame instead of resetting.
 
+### 3. Audio choppiness (fixed)
+Ring buffer drained to 0 between reads because ALSA writes consumed samples as fast as the core produced them.
+
+**Fixes applied:**
+- Ring buffer capacity: 65k → 262k samples
+- Added accumulation buffer (8k samples) before ALSA writes
+- ALSA buffer: default (~10ms) → 256ms, period → 64ms
+
+## Known: Ring Buffer Always Empty
+
+The ring buffer consistently shows 0/262144 samples, yet audio plays smoothly. This is expected because:
+
+1. **ALSA buffer absorbs the gap**: The 256ms ALSA hardware buffer holds ~12,288 samples, providing ~256ms of audio buffer independent of the ring buffer.
+
+2. **Accumulation buffer batches writes**: The playback thread accumulates 8k samples before writing to ALSA, reducing write frequency from 60Hz → ~15Hz.
+
+3. **Ring buffer is a pass-through**: Samples flow Core → Ring Buffer → Accumulation → ALSA. The ring buffer never accumulates because ALSA drains it as fast as the core fills it, but the ALSA buffer provides the actual audio smoothing.
+
+```log
+audio: rb=0/262144 (0.0s), accum=4948/8192  # Ring empty, accum fluctuating
+audio: rb=0/262144 (0.0s), accum=3304/8192  # Still empty, smooth playback
+audio: rb=172/262144 (0.0s), accum=0/8192   # Rarely fills slightly
+```
+
+**Conclusion:** Ring buffer size is not the bottleneck — ALSA hardware buffer (256ms) is what makes audio smooth. The ring buffer could potentially be reduced, but keeping it large provides a safety margin.
+
 ## Code Locations
 
 - **Timing instrumentation**: `rustsdlretro-frontend/src/main.rs` — main loop timing measurements
