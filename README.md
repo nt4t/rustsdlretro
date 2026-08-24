@@ -4,7 +4,7 @@ Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emu
 
 ## Features
 
-- **Dual video backends** - Framebuffer (`/dev/fb0`) or X11 windowed (minifb) via config
+- **Dual video backends** - Framebuffer (`/dev/fb0`) default; X11 windowed (minifb) via `--features minifb`
 - **Libretro core support** - Reuses existing `.so` cores (snes9x, Genesis-Plus-GX, mGBA, etc.)
 - **Menu overlay** - Browse and modify core options with ESC key, navigation arrows, value cycling
 - **Dynamic resolution** - Handles cores that change resolution during gameplay (letterboxing)
@@ -12,7 +12,7 @@ Simple rust libretro frontend for Linux framebuffer devices. Runs retro game emu
 - **Keyboard input** - evdev `/dev/input/event0` with SNES gamepad mapping
 - **Embedded bitmap fonts** - 8px and 16px tall fonts, no external font files needed
 - **Core options v1/v2** - Full support for libretro core options API
-- **JSON configuration** - Renderer selection, window settings, CLI `--config` override
+- **JSON configuration** - Renderer selection, window settings (requires `--features config`)
 
 ## Architecture
 
@@ -48,16 +48,19 @@ rustsdlretro/
 cargo build --release
 ```
 
-### Build with X11 windowed backend
+### Build with X11 windowed backend + JSON config
 
 ```bash
 cargo build --release --features minifb,config
 ```
 
-**Feature flags**:
+**Feature flags** (defined in `rustsdlretro-core`):
 - `default = ["fbdev"]` — framebuffer backend only
-- `minifb = ["dep:minifb"]` — adds X11 windowed backend
-- `config = ["dep:serde", "dep:serde_json"]` — adds JSON config parsing
+- `fbdev` — framebuffer (`/dev/fb0`) video output
+- `minifb = ["dep:minifb"]` — X11 windowed backend via minifb
+- `config = ["dep:serde", "dep:serde_json"]` — JSON config file parsing
+
+**Default build**: `cargo build --release` produces a framebuffer-only binary.
 
 ### Cross-compile for Raspberry Pi
 
@@ -114,7 +117,7 @@ System directory: `~/.config/rustsdlretro/`
 - `window.*`: Only used when `renderer = "minifb"` (width, height, scale, borderless, title)
 - `input.device`: Input device path (default: `/dev/input/event0`)
 
-**CLI override**: `--config <path>` to specify a custom config file location.
+**Note**: Config file support requires the `config` feature flag at compile time.
 
 ## Supported Cores
 

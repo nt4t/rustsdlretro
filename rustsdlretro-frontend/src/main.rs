@@ -1,5 +1,6 @@
 use rustsdlretro_core::Core;
 use rustsdlretro_core::video::VideoBackend;
+#[cfg(feature = "config")]
 use rustsdlretro_core::config::{Config, Renderer};
 use rustsdlretro_core::input::InputReader;
 use rustsdlretro_core::gui::Gui;
@@ -48,28 +49,26 @@ extern "C" fn input_state_cb(port: u32, device: u32, index: u32, id: u32) -> i16
 
 static mut MAIN_INPUT: *mut InputReader = std::ptr::null_mut();
 
-fn create_video_backend(config: &Config) -> Box<dyn VideoBackend> {
-    match config.renderer {
-        Renderer::Fbdev => {
-            eprintln!("Opening framebuffer...");
-            let video = rustsdlretro_core::video::FbdevVideo::new()
-                .expect("Failed to open framebuffer");
-            eprintln!("Framebuffer: {}x{}bpp", video.fb_width(), video.fb_bpp());
-            Box::new(video)
-        }
-        Renderer::Minifb => {
-            eprintln!("Opening minifb window ({}x{})...", config.window.width, config.window.height);
-            let video = rustsdlretro_core::video_minifb::MinifbVideo::new(
-                config.window.width,
-                config.window.height,
-                config.window.scale,
-                config.window.borderless,
-                &config.window.title,
-            ).expect("Failed to create minifb window");
-            eprintln!("Minifb window ready: {}x{}", video.fb_width(), video.fb_height());
-            Box::new(video)
-        }
-    }
+fn create_video_backend() -> Box<dyn VideoBackend> {
+    eprintln!("Opening framebuffer...");
+    let video = rustsdlretro_core::video::FbdevVideo::new()
+        .expect("Failed to open framebuffer");
+    eprintln!("Framebuffer: {}x{}bpp", video.fb_width(), video.fb_bpp());
+    Box::new(video)
+}
+
+#[cfg(feature = "minifb")]
+fn create_video_backend_minifb(config: &Config) -> Box<dyn VideoBackend> {
+    eprintln!("Opening minifb window ({}x{})...", config.window.width, config.window.height);
+    let video = rustsdlretro_core::video_minifb::MinifbVideo::new(
+        config.window.width,
+        config.window.height,
+        config.window.scale,
+        config.window.borderless,
+        &config.window.title,
+    ).expect("Failed to create minifb window");
+    eprintln!("Minifb window ready: {}x{}", video.fb_width(), video.fb_height());
+    Box::new(video)
 }
 
 fn main() {
@@ -82,12 +81,18 @@ fn main() {
     let core_path = &args[1];
     let rom_path = &args[2];
 
-    // Load config
-    let config = Config::load_default();
-    eprintln!("Renderer: {:?}", config.renderer);
-
-    // Create video backend based on config
-    let video = create_video_backend(&config);
+    // Create video backend
+    #[cfg(feature = "config")]
+    let video = {
+        let config = Config::load_default();
+        eprintln!("Renderer: {:?}", config.renderer);
+        match config.renderer {
+            Renderer::Fbdev => create_video_backend(),
+            Renderer::Minifb => create_video_backend_minifb(&config),
+        }
+    };
+    #[cfg(not(feature = "config"))]
+    let video = create_video_backend();
 
     eprintln!("Opening keyboard input...");
     let input = match InputReader::new() {
