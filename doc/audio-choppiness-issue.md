@@ -31,22 +31,54 @@ FPS: 4101.3
 
 ### With throttle (restored):
 ```
-FPS: 58.8
-FPS: 58.6
+FPS: 60.1
+FPS: 60.1
 ```
 
 ## Key Code Locations
 
-- **Throttle logic**: `rustsdlretro-core/src/lib.rs` — `Throttle` struct, `check_wait()`, `skip_check()`
+- **Throttle logic**: `rustsdlretro-core/src/lib.rs` — `Throttle` struct, `check_wait()`
 - **Main loop**: `rustsdlretro-frontend/src/main.rs` — `throttle.check_wait()` call and sleep loop
-- **Audio ring buffer**: `rustsdlretro-core/src/audio.rs` — `RingBuffer` (capacity 65536 samples)
+- **Audio ring buffer**: `rustsdlretro-core/src/audio.rs` — `RingBuffer` (capacity 262144 samples)
 - **Audio callbacks**: `rustsdlretro-core/src/lib.rs` — `audio_sample_cb`, `audio_sample_batch_cb`
+
+## Audio Pipeline
+
+### Components
+
+| Component | Size | Purpose |
+|-----------|------|---------|
+| **Ring Buffer** | 262,144 samples (~5.5s) | Core → playback thread |
+| **Accumulation Buffer** | 8,192 samples (~0.17s) | Playback thread → ALSA |
+| **ALSA Buffer** | 256ms (~12,288 samples) | ALSA hardware buffer |
+| **ALSA Period** | 64ms (~3,072 samples) | ALSA period size |
+
+### Data Flow
+
+```
+Core (60 FPS, ~1600 samples/frame)
+  → Ring Buffer (262k samples, 5.5s)
+  → Playback Thread (reads 2k, accumulates 8k)
+  → ALSA Buffer (256ms, 64ms period)
+  → Sound Card
+```
+
+### Key Design Decisions
+
+1. **Accumulation buffer**: ALSA writes are batched to ~8k samples (~15Hz) instead of writing every frame (60Hz). This reduces ALSA syscall overhead.
+
+2. **ALSA buffer/period**: Set to 256ms/64ms (via `set_buffer_size_near`/`set_period_size_near`) to absorb timing jitter between core production and hardware playback.
+
+3. **Throttle schedule**: When behind, `next_frame += frame_time` (not `= now + frame_time`) to prevent frame accumulation and maintain stable 60.1 FPS.
 
 ## Current Status
 
-The throttle has been re-enabled. FPS is now stable at ~58.6-58.8 (close to the 60.10 target). Audio should now be smooth.
+- **FPS**: Stable at 60.1 FPS (target: 60.10 FPS for NES)
+- **Audio**: ALSA buffer configured with 256ms buffer / 64ms period for smooth playback
+- **Ring buffer**: 262k samples (6s capacity), drains to 0 between reads but accumulation buffer smooths playback
 
 ## Related Files
 
+- `doc/per-frame-timing.md` — Per-frame timing analysis
 - `doc/alsa-audio-design.md` — Audio architecture design
 - `doc/plan-fix-options.md` — Previous throttle-related fixes
