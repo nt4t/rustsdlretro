@@ -52,7 +52,7 @@ impl MinifbVideo {
 
         let mut window = Window::new(title, window_width as usize, window_height as usize, opts)
             .map_err(|e| format!("Failed to create window: {}", e))?;
-        window.set_target_fps(60);
+        // Throttle controls frame pacing in main loop, not here
 
         let buffer = vec![0u32; (window_width * window_height) as usize];
 
@@ -122,20 +122,9 @@ impl MinifbVideo {
         // BB GG RR AA in memory.
         if core_bpp == 32 {
             // Core is XRGB8888 - convert to minifb ARGB8888
-            // Use lookup table for fast conversion: XRGB8888 -> ARGB8888
-            let lut: [u32; 256] = core::array::from_fn(|i| {
-                let r = i as u32;
-                0xFF000000 | (r << 16)
-            });
-            let g_lut: [u32; 256] = core::array::from_fn(|i| {
-                let g = i as u32;
-                (g << 8) as u32
-            });
-            let b_lut: [u32; 256] = core::array::from_fn(|i| {
-                let b = i as u32;
-                b as u32
-            });
-
+            // Fast conversion: XRGB8888 (0x00RRGGBB) -> ARGB8888 (0xFF000000 | 0x00RRGGBB)
+            // On little-endian, we can use ptr::copy_nonoverlapping for the bulk copy
+            // and then fix up the alpha channel
             for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u32).add((y as usize) * (pitch / 4)) };
                 let row_start = (offset_y + y) * self.width as usize + offset_x;
@@ -143,11 +132,8 @@ impl MinifbVideo {
                     let mut dest = self.buffer.as_mut_ptr().add(row_start);
                     for x in 0..frame_w {
                         let pixel = *src_row.add(x);
-                        let r = (pixel >> 16) & 0xFF;
-                        let g = (pixel >> 8) & 0xFF;
-                        let b = pixel & 0xFF;
-                        // ARGB8888: 0xAARRGGBB - combine using precomputed LUTs
-                        *dest = lut[r as usize] | g_lut[g as usize] | b_lut[b as usize];
+                        // XRGB8888 -> ARGB8888: set alpha to 0xFF
+                        *dest = 0xFF000000 | pixel;
                         dest = dest.add(1);
                     }
                 }
