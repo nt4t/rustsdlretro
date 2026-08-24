@@ -465,7 +465,7 @@ impl Throttle {
         if result > 0 {
             result
         } else {
-            self.next_frame = now + self.frame_time;
+            self.next_frame += self.frame_time;
             result
         }
     }
