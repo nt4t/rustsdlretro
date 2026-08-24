@@ -2,6 +2,12 @@ use evdev::Device;
 use libc::c_int;
 use std::sync::{Arc, Mutex};
 
+#[cfg(feature = "minifb")]
+use minifb::Key;
+
+// Function type for polling keyboard state
+type KeyboardPollFn = Box<dyn Fn(Key) -> bool + Send + 'static>;
+
 // SNES button mappings (libretro RETRO_DEVICE_ID_JOYPAD values)
 const JOYPAD_B: c_int = 0;
 const JOYPAD_A: c_int = 8;
@@ -15,6 +21,28 @@ const JOYPAD_UP: c_int = 4;
 const JOYPAD_DOWN: c_int = 5;
 const JOYPAD_LEFT: c_int = 6;
 const JOYPAD_RIGHT: c_int = 7;
+
+// Map minifb keys to joypad IDs for keyboard fallback
+#[cfg(feature = "minifb")]
+fn minifb_key_to_joypad(key: Key) -> Option<c_int> {
+    match key {
+        Key::Up => Some(JOYPAD_UP),
+        Key::Down => Some(JOYPAD_DOWN),
+        Key::Left => Some(JOYPAD_LEFT),
+        Key::Right => Some(JOYPAD_RIGHT),
+        Key::NumPad0 | Key::K => Some(JOYPAD_B),
+        Key::L | Key::J => Some(JOYPAD_A),
+        Key::I => Some(JOYPAD_Y),
+        Key::U => Some(JOYPAD_X),
+        Key::Q => Some(JOYPAD_L),
+        Key::O => Some(JOYPAD_R),
+        Key::Enter | Key::NumPadEnter => Some(JOYPAD_START),
+        Key::Space => Some(JOYPAD_SELECT),
+        Key::Escape => Some(13),  // ESC - menu toggle
+        Key::F1 => Some(12),      // F1 - menu toggle
+        _ => None,
+    }
+}
 
 fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
     match keycode {
@@ -39,9 +67,12 @@ fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
 pub struct InputReader {
     state: Arc<Mutex<[i32; 16]>>,
     just_pressed: Arc<Mutex<[bool; 16]>>,
+    #[cfg(feature = "minifb")]
+    poll_fn: Option<KeyboardPollFn>,
 }
 
 impl InputReader {
+    /// Create an InputReader using evdev (embedded/framebuffer mode)
     pub fn new() -> Result<Self, String> {
         let mut device = match Device::open("/dev/input/event0") {
             Ok(d) => d,
@@ -90,7 +121,94 @@ impl InputReader {
             }
         });
 
-        Ok(InputReader { state, just_pressed })
+        Ok(InputReader {
+            state,
+            just_pressed,
+            #[cfg(feature = "minifb")]
+            poll_fn: None,
+        })
+    }
+    
+    /// Create a keyboard-based InputReader using minifb (desktop mode)
+    #[cfg(feature = "minifb")]
+    pub fn new_keyboard() -> Self {
+        eprintln!("Using keyboard input (minifb mode)");
+        let state: [i32; 16] = [0; 16];
+        let state = Arc::new(Mutex::new(state));
+        let just_pressed: [bool; 16] = [false; 16];
+        let just_pressed = Arc::new(Mutex::new(just_pressed));
+        
+        InputReader {
+            state,
+            just_pressed,
+            poll_fn: None, // Will be set by frontend
+        }
+    }
+    
+    /// Set the keyboard poll function (for minifb mode)
+    #[cfg(feature = "minifb")]
+    pub fn set_poll_fn(&mut self, poll_fn: impl Fn(Key) -> bool + Send + 'static) {
+        self.poll_fn = Some(Box::new(poll_fn));
+    }
+    
+    /// Poll the keyboard state using a minifb video reference (for minifb mode)
+    #[cfg(feature = "minifb")]
+    pub fn poll_with_video(&self, video: &crate::video_minifb::MinifbVideo) {
+        let mut s = self.state.lock().unwrap();
+        let mut jp = self.just_pressed.lock().unwrap();
+        
+        // Reset all states first
+        for i in 0..16 {
+            s[i] = 0;
+        }
+        
+        // Map minifb keys to joypad buttons
+        let keys = vec![
+            Key::Up, Key::Down, Key::Left, Key::Right,
+            Key::NumPad0, Key::K, Key::L, Key::J, Key::I, Key::U,
+            Key::Q, Key::O, Key::Enter, Key::NumPadEnter, Key::Space,
+            Key::Escape, Key::F1,
+        ];
+        
+        for key in keys {
+            if video.is_key_down(key) {
+                if let Some(joypad_id) = minifb_key_to_joypad(key) {
+                    s[joypad_id as usize] = 1;
+                    jp[joypad_id as usize] = true;
+                }
+            }
+        }
+    }
+    
+    /// Poll the keyboard state (for minifb mode, uses poll_fn if set)
+    #[cfg(feature = "minifb")]
+    pub fn poll(&self) {
+        if let Some(ref poll_fn) = self.poll_fn {
+            let mut s = self.state.lock().unwrap();
+            let mut jp = self.just_pressed.lock().unwrap();
+            
+            // Reset all states first
+            for i in 0..16 {
+                s[i] = 0;
+            }
+            
+            // Map minifb keys to joypad buttons
+            let keys = vec![
+                Key::Up, Key::Down, Key::Left, Key::Right,
+                Key::NumPad0, Key::K, Key::L, Key::J, Key::I, Key::U,
+                Key::Q, Key::O, Key::Enter, Key::NumPadEnter, Key::Space,
+                Key::Escape, Key::F1,
+            ];
+            
+            for key in keys {
+                if poll_fn(key) {
+                    if let Some(joypad_id) = minifb_key_to_joypad(key) {
+                        s[joypad_id as usize] = 1;
+                        jp[joypad_id as usize] = true;
+                    }
+                }
+            }
+        }
     }
 
     pub fn get_state(&self, _port: u32, _device: u32, _index: u32, id: u32) -> i16 {

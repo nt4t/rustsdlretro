@@ -49,25 +49,14 @@ extern "C" fn input_state_cb(port: u32, device: u32, index: u32, id: u32) -> i16
 
 static mut MAIN_INPUT: *mut InputReader = std::ptr::null_mut();
 
+#[cfg(feature = "minifb")]
+static mut MINIFB_VIDEO: *mut rustsdlretro_core::video_minifb::MinifbVideo = std::ptr::null_mut();
+
 fn create_video_backend() -> Box<dyn VideoBackend> {
     eprintln!("Opening framebuffer...");
     let video = rustsdlretro_core::video::FbdevVideo::new()
         .expect("Failed to open framebuffer");
     eprintln!("Framebuffer: {}x{}bpp", video.fb_width(), video.fb_bpp());
-    Box::new(video)
-}
-
-#[cfg(feature = "minifb")]
-fn create_video_backend_minifb(config: &Config) -> Box<dyn VideoBackend> {
-    eprintln!("Opening minifb window ({}x{})...", config.window.width, config.window.height);
-    let video = rustsdlretro_core::video_minifb::MinifbVideo::new(
-        config.window.width,
-        config.window.height,
-        config.window.scale,
-        config.window.borderless,
-        &config.window.title,
-    ).expect("Failed to create minifb window");
-    eprintln!("Minifb window ready: {}x{}", video.fb_width(), video.fb_height());
     Box::new(video)
 }
 
@@ -82,24 +71,46 @@ fn main() {
     let rom_path = &args[2];
 
     // Create video backend
-    #[cfg(feature = "config")]
-    let video = {
-        let config = Config::load_default();
-        eprintln!("Renderer: {:?}", config.renderer);
-        match config.renderer {
-            Renderer::Fbdev => create_video_backend(),
-            Renderer::Minifb => create_video_backend_minifb(&config),
+    let mut video: Box<dyn VideoBackend> = {
+        #[cfg(feature = "config")]
+        {
+            let config = Config::load_default();
+            eprintln!("Renderer: {:?}", config.renderer);
+            match config.renderer {
+                Renderer::Fbdev => create_video_backend(),
+                #[cfg(feature = "minifb")]
+                Renderer::Minifb => {
+                    eprintln!("Opening minifb window ({}x{})...", config.window.width, config.window.height);
+                    let v = rustsdlretro_core::video_minifb::MinifbVideo::new(
+                        config.window.width,
+                        config.window.height,
+                        config.window.scale,
+                        config.window.borderless,
+                        &config.window.title,
+                    ).expect("Failed to create minifb window");
+                    eprintln!("Minifb window ready: {}x{}", v.fb_width(), v.fb_height());
+                    Box::new(v)
+                }
+                #[cfg(not(feature = "minifb"))]
+                Renderer::Minifb => {
+                    eprintln!("Error: minifb feature not enabled");
+                    std::process::exit(1);
+                }
+            }
         }
+        #[cfg(not(feature = "config"))]
+        create_video_backend()
     };
-    #[cfg(not(feature = "config"))]
-    let video = create_video_backend();
 
-    eprintln!("Opening keyboard input...");
-    let input = match InputReader::new() {
+    eprintln!("Creating input reader...");
+    #[cfg(feature = "minifb")]
+    let mut input = InputReader::new_keyboard();
+    #[cfg(not(feature = "minifb"))]
+    let mut input = match InputReader::new() {
         Ok(i) => i,
         Err(e) => { eprintln!("Failed to open input: {}", e); std::process::exit(1); }
     };
-    eprintln!("Keyboard input ready");
+    eprintln!("Input ready");
 
     eprintln!("Initializing GUI...");
     let mut gui = Gui::new();
@@ -121,6 +132,14 @@ fn main() {
         std::process::exit(1);
     }
     eprintln!("Init OK");
+
+    // Store minifb video pointer for keyboard polling
+    #[cfg(feature = "minifb")]
+    unsafe {
+        if let Some(minifb_video) = video.as_any_mut().and_then(|x| x.downcast_mut::<rustsdlretro_core::video_minifb::MinifbVideo>()) {
+            MINIFB_VIDEO = minifb_video;
+        }
+    }
 
     unsafe {
         rustsdlretro_core::MAIN_VIDEO = Some(ManuallyDrop::new(video));
@@ -204,6 +223,14 @@ fn main() {
 
     while RUNNING.load(Ordering::SeqCst) {
 
+        // Poll keyboard input for minifb mode
+        #[cfg(feature = "minifb")]
+        unsafe {
+            if !MINIFB_VIDEO.is_null() && !MAIN_INPUT.is_null() {
+                (*MAIN_INPUT).poll_with_video(&*MINIFB_VIDEO);
+            }
+        }
+
         // Check if minifb window requests close (ESC)
         unsafe {
             if let Some(ref video) = rustsdlretro_core::MAIN_VIDEO {
@@ -257,7 +284,6 @@ fn main() {
                 }
             }
         }
-        let t_render_start = std::time::Instant::now();
         // Render GUI overlay
         unsafe {
             if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
@@ -266,7 +292,6 @@ fn main() {
                 gui.render(&mut ***v, w, h);
             }
         }
-        let t_window_start = std::time::Instant::now();
         // For minifb, we need to update the window each frame
         unsafe {
             if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {

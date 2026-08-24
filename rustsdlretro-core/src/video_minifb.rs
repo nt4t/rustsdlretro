@@ -3,8 +3,11 @@
 
 use crate::font;
 use crate::video::VideoBackend;
-use minifb::{Key, Scale, ScaleMode, Window, WindowOptions};
+use minifb::{Scale, ScaleMode, Window, WindowOptions};
 use std::ffi::c_void;
+
+// Re-export minifb Key for use by frontend
+pub use minifb::Key;
 
 /// Minifb video backend
 pub struct MinifbVideo {

@@ -3,6 +3,11 @@ name = "rustsdlretro-frontend"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+minifb = ["rustsdlretro-core/minifb"]
+config = ["rustsdlretro-core/config"]
+
 [dependencies]
-rustsdlretro-core = { path = "../rustsdlretro-core", default-features = false, features = ["fbdev"] }
+rustsdlretro-core = { path = "../rustsdlretro-core", default-features = false, features = ["minifb", "config"] }
 libc = "0.2"
