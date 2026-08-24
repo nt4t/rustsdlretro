@@ -208,11 +208,21 @@ fn open_pcm(device: &str, sample_rate: u32) -> Result<alsa::pcm::PCM, String> {
             .map_err(|e| format!("set_channels failed: {}", e))?;
         hw_params.set_rate(sample_rate, alsa::ValueOr::Nearest)
             .map_err(|e| format!("set_rate failed: {}", e))?;
+        // Set large buffer to absorb timing jitter: 256ms at target rate
+        let buffer_us = 256_000; // 256ms
+        let buffer_frames = (sample_rate as u64 * buffer_us as u64 / 1_000_000) as i64;
+        let buffer_frames = hw_params.set_buffer_size_near(buffer_frames)
+            .map_err(|e| format!("set_buffer_size_near failed: {}", e))?;
+        // Period size: 1/4 of buffer (~64ms)
+        let period_frames = buffer_frames / 4;
+        let _period_frames = hw_params.set_period_size_near(period_frames, alsa::ValueOr::Nearest)
+            .map_err(|e| format!("set_period_size_near failed: {}", e))?;
         pcm.hw_params(&hw_params)
             .map_err(|e| format!("hw_params apply failed: {}", e))?;
     }
     if let Ok(current) = pcm.hw_params_current() {
-        eprintln!("ALSA PCM '{}' configured: rate={}", device, current.get_rate().unwrap_or(0));
+        let rate = current.get_rate().unwrap_or(0);
+        eprintln!("ALSA PCM '{}' configured: rate={}Hz buffer=256ms period=64ms", device, rate);
     }
     pcm.start()
         .map_err(|e| format!("PCM start failed: {}", e))?;
