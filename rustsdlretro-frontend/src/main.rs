@@ -196,8 +196,15 @@ fn main() {
     let mut frame_count: u64 = 0;
     let mut last_fps_time = std::time::Instant::now();
     let mut last_fps_frames: u64 = 0;
+    let mut timing_sum_run: u64 = 0;
+    let mut timing_sum_wait: u64 = 0;
+    let mut timing_sum_render: u64 = 0;
+    let mut timing_sum_window: u64 = 0;
+    let mut timing_count: u64 = 0;
 
     while RUNNING.load(Ordering::SeqCst) {
+        let t0 = std::time::Instant::now();
+
         // Handle GUI input
         let menu_open = unsafe {
             if let (Some(video), Some(input)) = (rustsdlretro_core::MAIN_VIDEO.as_ref(), MAIN_INPUT.as_ref()) {
@@ -211,6 +218,7 @@ fn main() {
             eprintln!("Failed to run frame");
             break;
         }
+        let t_run = t0.elapsed();
         frame_count += 1;
 
         let current_fps = {
@@ -225,6 +233,7 @@ fn main() {
             }
         }
 
+        let t_wait_start = std::time::Instant::now();
         let usecs = throttle.check_wait();
         if usecs > 0 {
             let mut remaining = usecs;
@@ -240,7 +249,9 @@ fn main() {
                 }
             }
         }
+        let t_wait = t_wait_start.elapsed();
 
+        let t_render_start = std::time::Instant::now();
         // Render GUI overlay
         unsafe {
             if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
@@ -249,12 +260,36 @@ fn main() {
                 gui.render(&mut ***v, w, h);
             }
         }
+        let t_render = t_render_start.elapsed();
 
+        let t_window_start = std::time::Instant::now();
         // For minifb, we need to update the window each frame
         unsafe {
             if let Some(ref mut v) = rustsdlretro_core::MAIN_VIDEO {
                 (*v).update_window();
             }
+        }
+        let t_window = t_window_start.elapsed();
+
+        // Accumulate timing stats every 60 frames
+        timing_count += 1;
+        timing_sum_run += t_run.as_micros() as u64;
+        timing_sum_wait += t_wait.as_micros() as u64;
+        timing_sum_render += t_render.as_micros() as u64;
+        timing_sum_window += t_window.as_micros() as u64;
+
+        if timing_count >= 60 {
+            let avg_run = timing_sum_run / timing_count;
+            let avg_wait = timing_sum_wait / timing_count;
+            let avg_render = timing_sum_render / timing_count;
+            let avg_window = timing_sum_window / timing_count;
+            let total = avg_run + avg_wait + avg_render + avg_window;
+            eprintln!("Per-frame timing (window={}): run={}us wait={}us render={}us window={}us total={}us", timing_count, avg_run, avg_wait, avg_render, avg_window, total);
+            timing_sum_run = 0;
+            timing_sum_wait = 0;
+            timing_sum_render = 0;
+            timing_sum_window = 0;
+            timing_count = 0;
         }
 
         let now = std::time::Instant::now();
