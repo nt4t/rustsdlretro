@@ -110,53 +110,70 @@ impl MinifbVideo {
             return;
         }
 
-        let frame_w = frame_w as i32;
-        let frame_h = frame_h as i32;
+        let frame_w = frame_w as usize;
+        let frame_h = frame_h as usize;
 
         self.frame_drawn = true;
-        let offset_x = ((self.width as i32) - frame_w) / 2;
-        let offset_y = ((self.height as i32) - frame_h) / 2;
+        let offset_x = ((self.width as usize) - frame_w) / 2;
+        let offset_y = ((self.height as usize) - frame_h) / 2;
 
         // Minifb expects ARGB8888 (u32 value 0xAARRGGBB). On little-endian the
         // in-memory byte order is B-G-R-A, so ARGB 0xAARRGGBB maps to bytes
         // BB GG RR AA in memory.
         if core_bpp == 32 {
             // Core is XRGB8888 - convert to minifb ARGB8888
+            // Use lookup table for fast conversion: XRGB8888 -> ARGB8888
+            let lut: [u32; 256] = core::array::from_fn(|i| {
+                let r = i as u32;
+                0xFF000000 | (r << 16)
+            });
+            let g_lut: [u32; 256] = core::array::from_fn(|i| {
+                let g = i as u32;
+                (g << 8) as u32
+            });
+            let b_lut: [u32; 256] = core::array::from_fn(|i| {
+                let b = i as u32;
+                b as u32
+            });
+
             for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u32).add((y as usize) * (pitch / 4)) };
-                let row = (offset_y + y) as usize;
-                let dest_offset = row * self.width as usize + (offset_x as usize);
+                let row_start = (offset_y + y) * self.width as usize + offset_x;
                 unsafe {
-                    let mut dest = self.buffer.as_mut_ptr().add(dest_offset);
+                    let mut dest = self.buffer.as_mut_ptr().add(row_start);
                     for x in 0..frame_w {
-                        let pixel = *src_row.add(x as usize);
+                        let pixel = *src_row.add(x);
                         let r = (pixel >> 16) & 0xFF;
                         let g = (pixel >> 8) & 0xFF;
                         let b = pixel & 0xFF;
-                        // ARGB8888: 0xAARRGGBB
-                        *dest = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                        // ARGB8888: 0xAARRGGBB - combine using precomputed LUTs
+                        *dest = lut[r as usize] | g_lut[g as usize] | b_lut[b as usize];
                         dest = dest.add(1);
                     }
                 }
             }
         } else if core_bpp == 16 {
             // Core is RGB565 - convert to minifb ARGB8888
+            // Use lookup table for fast conversion
+            let mut rgb565_lut: [u32; 65536] = core::array::from_fn(|_| 0);
+            for i in 0u16..=65535u16 {
+                let r5 = (i >> 11) & 0x1F;
+                let g6 = (i >> 5) & 0x3F;
+                let b5 = i & 0x1F;
+                let r = ((r5 << 3) | (r5 >> 2)) as u32;
+                let g = ((g6 << 2) | (g6 >> 4)) as u32;
+                let b = ((b5 << 3) | (b5 >> 2)) as u32;
+                rgb565_lut[i as usize] = 0xFF000000 | (r << 16) | (g << 8) | b;
+            }
+
             for y in 0..frame_h {
                 let src_row = unsafe { (pixels as *const u16).add((y as usize) * (pitch / 2)) };
-                let row = (offset_y + y) as usize;
-                let dest_offset = row * self.width as usize + (offset_x as usize);
+                let row_start = (offset_y + y) * self.width as usize + offset_x;
                 unsafe {
-                    let mut dest = self.buffer.as_mut_ptr().add(dest_offset);
+                    let mut dest = self.buffer.as_mut_ptr().add(row_start);
                     for x in 0..frame_w {
-                        let pixel = *src_row.add(x as usize);
-                        let r5 = (pixel >> 11) & 0x1F;
-                        let g6 = (pixel >> 5) & 0x3F;
-                        let b5 = pixel & 0x1F;
-                        let r = ((r5 << 3) | (r5 >> 2)) as u32;
-                        let g = ((g6 << 2) | (g6 >> 4)) as u32;
-                        let b = ((b5 << 3) | (b5 >> 2)) as u32;
-                        // ARGB8888: 0xAARRGGBB
-                        *dest = 0xFF000000 | (r << 16) | (g << 8) | b;
+                        let pixel = *src_row.add(x);
+                        *dest = rgb565_lut[pixel as usize];
                         dest = dest.add(1);
                     }
                 }
