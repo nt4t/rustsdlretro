@@ -14,8 +14,8 @@ pub struct RingBuffer {
     count: usize,
 }
 
-const RING_BUFFER_CAPACITY: usize = 65536;
-const READ_BATCH_SIZE: usize = 8192;
+const RING_BUFFER_CAPACITY: usize = 262144;
+const READ_BATCH_SIZE: usize = 2048;
 
 impl RingBuffer {
     pub fn new() -> Self {
@@ -294,6 +294,10 @@ fn playback_thread_loop(
     device: String,
     sample_rate: u32,
 ) {
+    // Accumulate samples locally before writing to ALSA to avoid draining the ring buffer
+    const ACCUM_TARGET: usize = 8192; // ~4 frames worth, matches ALSA period
+    let mut accum = vec![0i16; ACCUM_TARGET];
+    let mut accum_count = 0usize;
     let mut buffer = vec![0i16; READ_BATCH_SIZE * 2];
     let mut write_count = 0u64;
     let mut empty_count = 0u64;
@@ -310,49 +314,62 @@ fn playback_thread_loop(
             break;
         }
 
-        let mut rb = ring_buffer.lock().unwrap();
-        let available = rb.len();
-        occupancy_log_counter += 1;
-        if occupancy_log_counter % 500 == 0 {
-            eprintln!("audio: rb={}/{} ({:.1}s), empty_iters={}", available, rb.capacity, available as f64 / sample_rate as f64 * 2.0, empty_count);
-        }
-        drop(rb);
-
-        if available == 0 {
-            empty_count += 1;
-            if empty_count % 10000 == 0 {
-                eprintln!("playback_thread: {} empty iterations", empty_count);
+        // Accumulate samples locally before writing to ALSA
+        if accum_count < ACCUM_TARGET {
+            let mut rb = ring_buffer.lock().unwrap();
+            let available = rb.len();
+            occupancy_log_counter += 1;
+            if occupancy_log_counter % 500 == 0 {
+                eprintln!("audio: rb={}/{} ({:.1}s), accum={}/{}", available, rb.capacity, available as f64 / sample_rate as f64 * 2.0, accum_count, ACCUM_TARGET);
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            drop(rb);
+
+            if available == 0 {
+                empty_count += 1;
+                if empty_count % 10000 == 0 {
+                    eprintln!("playback_thread: {} empty iterations", empty_count);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                continue;
+            }
+
+            empty_count = 0;
+
+            let mut rb = ring_buffer.lock().unwrap();
+            let to_read = available.min(ACCUM_TARGET - accum_count).min(buffer.len());
+            let read_count = rb.read(&mut buffer[..to_read]);
+            drop(rb);
+
+            if read_count > 0 {
+                accum[accum_count..accum_count + read_count].copy_from_slice(&buffer[..read_count]);
+                accum_count += read_count;
+            }
             continue;
         }
 
-        empty_count = 0;
-
-        let mut rb = ring_buffer.lock().unwrap();
-        let to_read = available.min(buffer.len());
-        let read_count = rb.read(&mut buffer[..to_read]);
-        drop(rb);
-
-        if read_count == 0 {
-            continue;
-        }
-
+        // We have enough samples, write to ALSA
         if audio_disabled {
-            // Silent mode: keep draining the ring buffer so producers never block.
+            // Silent mode: drain accumulation buffer and keep draining ring buffer
+            let mut rb = ring_buffer.lock().unwrap();
+            let available = rb.len();
+            let to_read = available.min(buffer.len());
+            let _ = rb.read(&mut buffer[..to_read]);
+            drop(rb);
+            accum_count = 0;
             std::thread::sleep(Duration::from_millis(10));
             continue;
         }
 
         let pcm_opt = pcm.lock().unwrap();
         if let Some(pcm_handle) = &*pcm_opt {
-            match write_all_pcm(pcm_handle, &buffer[..read_count]) {
+            match write_all_pcm(pcm_handle, &accum[..accum_count]) {
                 Ok(()) => {
                     write_count += 1;
                     consecutive_failures = 0;
                     if write_count == 1 || write_count % 1000 == 0 {
-                        eprintln!("playback_thread: {} total ALSA writes, {} samples written this call", write_count, read_count);
+                        eprintln!("playback_thread: {} total ALSA writes, {} samples written this call", write_count, accum_count);
                     }
+                    accum_count = 0;
                 }
                 Err(err) => {
                     consecutive_failures += 1;
