@@ -428,17 +428,21 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
             eprintln!("audio_sample_batch_cb: FIRST CALL frames={} data_ptr={:?} MAIN_AUDIO_ptr={:?}", 
                 frames, data, MAIN_AUDIO);
         }
-        if !MAIN_AUDIO.is_null() {
-            let audio = &mut *(MAIN_AUDIO as *mut audio::AudioDriver);
-            if !data.is_null() && frames > 0 {
-                let slice = std::slice::from_raw_parts(data, frames * 2);
+        if !MAIN_AUDIO.is_null() && !data.is_null() && frames > 0 {
+            let slice = std::slice::from_raw_parts(data, frames * 2);
+            #[cfg(feature = "null-audio")]
+            {
+                let audio = &mut *(MAIN_AUDIO as *mut audio_null::NullAudioDriver);
                 audio.push_batch(slice);
-                AUDIO_SAMPLES_PER_FRAME += frames * 2;
-            } else if frames > 0 {
-                eprintln!("audio_sample_batch_cb: frames={} but data is null", frames);
             }
-        } else {
-            eprintln!("audio_sample_batch_cb: MAIN_AUDIO is null!");
+            #[cfg(not(feature = "null-audio"))]
+            {
+                let audio = &mut *(MAIN_AUDIO as *mut audio::AudioDriver);
+                audio.push_batch(slice);
+            }
+            AUDIO_SAMPLES_PER_FRAME += frames * 2;
+        } else if frames > 0 {
+            eprintln!("audio_sample_batch_cb: frames={} but data is null", frames);
         }
         frames
     }
