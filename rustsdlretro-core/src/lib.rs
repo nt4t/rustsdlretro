@@ -404,7 +404,7 @@ extern "C" fn system_dir_env_callback(key: u32, data: *mut libc::c_void) -> bool
 }
 
 static mut AUDIO_CB_COUNT: usize = 0;
-static mut AUDIO_BATCH_CB_COUNT: usize = 0;
+pub static mut AUDIO_BATCH_CB_COUNT: usize = 0;
 
 extern "C" fn audio_sample_cb(left: i16, right: i16) {
     unsafe {
@@ -431,6 +431,7 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
             if !data.is_null() && frames > 0 {
                 let slice = std::slice::from_raw_parts(data, frames * 2);
                 audio.push_batch(slice);
+                AUDIO_SAMPLES_PER_FRAME += frames * 2;
             } else if frames > 0 {
                 eprintln!("audio_sample_batch_cb: frames={} but data is null", frames);
             }
@@ -440,6 +441,8 @@ extern "C" fn audio_sample_batch_cb(data: *const i16, frames: usize) -> usize {
         frames
     }
 }
+
+pub static mut AUDIO_SAMPLES_PER_FRAME: usize = 0;
 
 pub struct Throttle {
     frame_time: u64,

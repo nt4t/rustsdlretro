@@ -300,6 +300,7 @@ fn playback_thread_loop(
     let mut consecutive_failures = 0u32;
     let mut last_err_log = Instant::now();
     let mut audio_disabled = false;
+    let mut occupancy_log_counter = 0u64;
 
     eprintln!("playback_thread: started (device={}, rate={})", device, sample_rate);
 
@@ -311,6 +312,10 @@ fn playback_thread_loop(
 
         let mut rb = ring_buffer.lock().unwrap();
         let available = rb.len();
+        occupancy_log_counter += 1;
+        if occupancy_log_counter % 500 == 0 {
+            eprintln!("audio: rb={}/{} ({:.1}s), empty_iters={}", available, rb.capacity, available as f64 / sample_rate as f64 * 2.0, empty_count);
+        }
         drop(rb);
 
         if available == 0 {
