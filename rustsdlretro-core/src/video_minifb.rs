@@ -141,6 +141,11 @@ impl MinifbVideo {
         let frame_w = frame_w as usize;
         let frame_h = frame_h as usize;
 
+        // Clear the entire buffer to remove artifacts from previous larger frames.
+        // When the core dynamically shrinks resolution, old pixel data would remain
+        // visible in the unused regions otherwise.
+        self.buffer.fill(0);
+
         self.frame_drawn = true;
         let offset_x = ((self.width as usize) - frame_w) / 2;
         let offset_y = ((self.height as usize) - frame_h) / 2;
