@@ -6,6 +6,24 @@ use crate::video::VideoBackend;
 use minifb::{Scale, ScaleMode, Window, WindowOptions};
 use std::ffi::c_void;
 
+/// Detect whether the system is running X11 or Wayland.
+pub fn detect_display_server() -> &'static str {
+    match std::env::var("XDG_SESSION_TYPE").as_deref() {
+        Ok("wayland") => "wayland",
+        Ok("x11" | "tty") => "x11",
+        _ => {
+            // Fallback: check for env vars
+            if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+                "wayland"
+            } else if std::env::var_os("DISPLAY").is_some() {
+                "x11"
+            } else {
+                "unknown"
+            }
+        }
+    }
+}
+
 // Re-export minifb Key for use by frontend
 pub use minifb::Key;
 
@@ -55,7 +73,9 @@ impl MinifbVideo {
 
         let mut window = Window::new(title, window_width as usize, window_height as usize, opts)
             .map_err(|e| format!("Failed to create window: {}", e))?;
-        // Throttle controls frame pacing in main loop, not here
+
+        // Report display server type for diagnostics
+        eprintln!("Display: {}", detect_display_server());
 
         let buffer = vec![0u32; (window_width * window_height) as usize];
 
