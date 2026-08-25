@@ -141,14 +141,32 @@ impl MinifbVideo {
         let frame_w = frame_w as usize;
         let frame_h = frame_h as usize;
 
-        // Clear the entire buffer to remove artifacts from previous larger frames.
-        // When the core dynamically shrinks resolution, old pixel data would remain
-        // visible in the unused regions otherwise.
-        self.buffer.fill(0);
-
         self.frame_drawn = true;
         let offset_x = ((self.width as usize) - frame_w) / 2;
         let offset_y = ((self.height as usize) - frame_h) / 2;
+
+        // Clear the game area (center rectangle) to remove any previous content.
+        // Also clear the left/right/top/bottom borders that may contain stale data
+        // from a previously larger resolution frame.
+        let buf_w = self.width as usize;
+        for y in 0..self.height as usize {
+            let row = y * buf_w;
+            if y < offset_y || y >= offset_y + frame_h {
+                // Top or bottom border — clear entire row
+                for x in 0..buf_w {
+                    self.buffer[row + x] = 0;
+                }
+            } else {
+                // Middle rows — clear left and right borders only
+                for x in 0..offset_x {
+                    self.buffer[row + x] = 0;
+                }
+                let right_start = offset_x + frame_w;
+                for x in right_start..buf_w {
+                    self.buffer[row + x] = 0;
+                }
+            }
+        }
 
         // Minifb expects ARGB8888 (u32 value 0xAARRGGBB). On little-endian the
         // in-memory byte order is B-G-R-A, so ARGB 0xAARRGGBB maps to bytes
@@ -207,10 +225,10 @@ impl MinifbVideo {
     }
 
     /// Clear the overlay area (fill with black)
-    /// For minifb, we don't clear the entire buffer to preserve the frame
     pub fn clear_overlay(&mut self, _fb_width: u32, _fb_height: u32) {
-        // Don't clear the entire buffer - the frame should remain visible
-        // Only the menu area will be drawn over the frame
+        // Fill entire buffer with black — needed when toggling menu state.
+        // When entering playing state from menu, this removes leftover menu pixels.
+        self.buffer.fill(0);
     }
 
     /// Draw a single pixel (32bpp only)

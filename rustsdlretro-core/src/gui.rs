@@ -342,9 +342,14 @@ impl Gui {
         self.frame_count += 1;
         
         if self.state == GuiState::Playing {
-            // Check for ESC to open menu
+            // F1 opens menu in minifb (ESC reserved for window close).
+            // In fbdev mode, ESC still works as the toggle key.
             let esc_pressed = input.was_key_just_pressed(1);
-            if esc_pressed {
+            #[cfg(feature = "minifb")]
+            let f1_pressed = input.was_key_just_pressed(59); // F1 scancode
+            #[cfg(not(feature = "minifb"))]
+            let f1_pressed = false;
+            if esc_pressed || f1_pressed {
                 self.toggle_menu();
                 self.try_init_menu_from_global();
             }
@@ -424,8 +429,12 @@ impl Gui {
                 self.last_value_frame = self.frame_count;
             }
 
-            // ESC to close menu
-            if input.was_key_just_pressed(1) {
+            // F1 or ESC closes menu (ESC may also close window in minifb)
+            #[cfg(feature = "minifb")]
+            let f1_pressed = input.was_key_just_pressed(59);
+            #[cfg(not(feature = "minifb"))]
+            let f1_pressed = false;
+            if input.was_key_just_pressed(1) || f1_pressed {
                 self.clear_needed = true;
                 self.state = GuiState::Playing;
             }
