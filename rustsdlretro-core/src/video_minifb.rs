@@ -323,29 +323,34 @@ impl MinifbVideo {
 
     /// Draw text using the font renderer
     pub fn draw_text_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32) {
+        // pitch must be in bytes per row (width * 4 for 32bpp)
+        let pitch = self.width * 4;
         unsafe {
-            font::draw_text(self.buffer.as_mut_ptr() as *mut u8, self.width, 32, x, y, text, color);
+            font::draw_text(self.buffer.as_mut_ptr() as *mut u8, pitch, 32, x, y, text, color);
         }
     }
 
     /// Draw big text using the font renderer
     pub fn draw_text_big_overlay(&mut self, x: i32, y: i32, text: &[u8], color: u32) {
+        let pitch = self.width * 4;
         unsafe {
-            font::draw_text_big(self.buffer.as_mut_ptr() as *mut u8, self.width, 32, x, y, text, color);
+            font::draw_text_big(self.buffer.as_mut_ptr() as *mut u8, pitch, 32, x, y, text, color);
         }
     }
 
     /// Draw a character using the font renderer
     pub fn draw_char_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32) {
+        let pitch = self.width * 4;
         unsafe {
-            font::draw_char(self.buffer.as_mut_ptr() as *mut u8, self.width, 32, x, y, ch, color, 0x000000, true);
+            font::draw_char(self.buffer.as_mut_ptr() as *mut u8, pitch, 32, x, y, ch, color, 0x000000, true);
         }
     }
 
     /// Draw a big character using the font renderer
     pub fn draw_char_big_overlay(&mut self, x: i32, y: i32, ch: u8, color: u32) {
+        let pitch = self.width * 4;
         unsafe {
-            font::draw_char_big(self.buffer.as_mut_ptr() as *mut u8, self.width, 32, x, y, ch, color, 0x000000, true);
+            font::draw_char_big(self.buffer.as_mut_ptr() as *mut u8, pitch, 32, x, y, ch, color, 0x000000, true);
         }
     }
 
