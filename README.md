@@ -15,7 +15,8 @@ Simple rust libretro frontend for Linux. Runs retro game emulators on:
 - **Embedded bitmap fonts** - 8px and 16px tall fonts, no external font files needed
 - **Core options v1/v2** - Full support for libretro core options API
 - **JSON configuration** - Renderer selection, window settings, input device (requires `--features config`)
-- **Launcher scripts** - `start_nes.sh` and `start_snes.sh` for quick ROM launching
+- **ZIP ROM loading** - Automatic extraction of ROMs from ZIP archives
+- **Launcher scripts** - Quick launch scripts for NES, SNES, and PSX games
 
 ## Architecture
 
@@ -25,6 +26,8 @@ rustsdlretro/
 │   ├── lib.rs              # Core lifecycle, FFI bindings, environment callback
 │   ├── video.rs            # VideoBackend trait + FbdevVideo: mmap framebuffer, pixel conversion
 │   ├── video_minifb.rs     # MinifbVideo: X11 windowed backend, buffer rendering
+│   ├── audio.rs            # ALSA audio driver with ring buffer
+│   ├── audio_null.rs       # Null/silent audio driver fallback
 │   ├── config.rs           # JSON config parsing, renderer selection
 │   ├── input.rs            # InputReader: evdev polling + minifb keyboard polling
 │   ├── font.rs             # Bitmap font renderer with embedded glyph data
@@ -35,6 +38,7 @@ rustsdlretro/
 │   └── main.rs             # CLI entry point, config loading, backend selection, main loop
 ├── start_nes.sh              # Launcher script for NES games
 ├── start_snes.sh             # Launcher script for SNES games
+├── start_psx.sh              # Launcher script for PSX games
 └── doc/                    # Design documents
 ```
 
@@ -98,6 +102,9 @@ Quick launch scripts are provided for common consoles:
 
 # SNES
 ./start_snes.sh
+
+# PlayStation
+./start_psx.sh
 ```
 
 ### Controls
@@ -144,6 +151,8 @@ Tested with:
 - snes9x2010 (SNES)
 - Genesis-Plus-GX (Sega Genesis)
 - mGBA (Game Boy Advance)
+- Beetle PSX-HW / Mednafen PSX (PlayStation 1)
+- FCEUmm (NES/Famicom)
 
 Any libretro core should work if it supports the standard libretro API.
 
@@ -161,7 +170,8 @@ Any libretro core should work if it supports the standard libretro API.
 - X11 windowed video output (minifb) with scale modes
 - Abstracted VideoBackend trait for backend-agnostic rendering
 - evdev keyboard input with gamepad mapping
-- ALSA audio playback
+- ALSA audio playback with ring buffer
+- Null/silent audio driver fallback
 - Frame throttling with drift correction
 - Dynamic resolution handling
 - Bitmap font renderer
@@ -170,9 +180,9 @@ Any libretro core should work if it supports the standard libretro API.
 - Optimized overlay rendering (bulk memory writes, no flicker)
 - JSON configuration system with renderer selection
 - ZIP ROM loading (extracts ROM from .zip archives automatically)
+- Deferred audio rate change handling for stable emulation
 
 ### Pending
-- ZIP ROM loading
 - Save states / SRAM persistence
 - Language file loading (i18n)
 - ROM browser with core selector
