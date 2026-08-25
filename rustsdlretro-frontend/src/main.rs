@@ -273,6 +273,23 @@ fn main() {
             eprintln!("Failed to run frame");
             break;
         }
+        
+        // Check and apply queued audio rate changes (deferred from environment callback)
+        unsafe {
+            if let Ok(queue) = rustsdlretro_core::AUDIO_RATE_CHANGE_QUEUE.lock() {
+                if let Some(new_rate) = queue.take() {
+                    if !rustsdlretro_core::MAIN_AUDIO.is_null() {
+                        #[cfg(not(feature = "null-audio"))]
+                        {
+                            eprintln!("Applying deferred audio rate change: {} Hz", new_rate);
+                            let audio_ptr = rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver;
+                            (*audio_ptr).restart_with_rate(new_rate);
+                        }
+                    }
+                }
+            }
+        }
+        
         unsafe { rustsdlretro_core::AUDIO_SAMPLES_PER_FRAME = 0; }
         frame_count += 1;
 

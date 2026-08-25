@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["minifb", "config", "null-audio"]
 minifb = ["rustsdlretro-core/minifb"]
 config = ["rustsdlretro-core/config"]
 null-audio = ["rustsdlretro-core/null-audio"]

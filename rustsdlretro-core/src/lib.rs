@@ -121,13 +121,25 @@ pub fn get_core_options_raw_mut() -> Option<&'static mut core_options::CoreOptio
     unsafe { CORE_OPTIONS.as_mut() }
 }
 
+// Unified environment callback that handles both logging and system directory
 extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
-    if key == 31 {
+    // Key 27 = RETRO_ENVIRONMENT_GET_LOG_INTERFACE
+    if key == 27 {
         let log_info = data as *mut retro_log_callback;
         if !log_info.is_null() {
             unsafe {
                 let fn_ptr: retro_log_printf_t = std::mem::transmute(log_callback as *const c_void);
                 (*log_info).log = fn_ptr;
+            }
+        }
+        return true;
+    }
+    // Key 9 = RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+    if key == 9 {
+        let dir_ptr = data as *mut *const libc::c_char;
+        if !dir_ptr.is_null() {
+            unsafe {
+                *dir_ptr = SYSTEM_DIR;
             }
         }
         return true;
@@ -148,9 +160,7 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         }
         return true;
     }
-    if key == 13 {
-        return true;
-    }
+
     if key == 52 {
         let version = data as *mut u32;
         if !version.is_null() {
@@ -275,13 +285,10 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
             let av_info = data as *mut retro_system_av_info;
             if !av_info.is_null() {
                 let new_sample_rate = unsafe { (*av_info).timing.sample_rate } as u32;
-                unsafe {
-                    if !MAIN_AUDIO.is_null() {
-                        let audio = &mut *(MAIN_AUDIO as *mut audio::AudioDriver);
-                        if new_sample_rate != audio.sample_rate {
-                            audio.restart_with_rate(new_sample_rate);
-                        }
-                    }
+                // Queue the rate change instead of applying immediately during callback
+                // This avoids memory corruption when called from within retro_run()
+                if let Ok(queue) = AUDIO_RATE_CHANGE_QUEUE.lock() {
+                    queue.set(Some(new_sample_rate));
                 }
             }
         }
@@ -372,6 +379,10 @@ CORE_OPTIONS = Some(core_options::CoreOptions {
     false
 }
 
+// Queue for deferred audio sample rate changes (avoid modifying during retro_run callback)
+pub static AUDIO_RATE_CHANGE_QUEUE: std::sync::Mutex<std::cell::Cell<Option<u32>>> = 
+    std::sync::Mutex::new(std::cell::Cell::new(None));
+
 static mut SYSTEM_DIR: *const libc::c_char = ptr::null();
 static RESOLUTION_STATE: std::sync::OnceLock<Arc<Mutex<ResolutionState>>> = std::sync::OnceLock::new();
 pub static mut MAIN_AUDIO: *mut c_void = ptr::null_mut();
@@ -389,21 +400,9 @@ pub fn set_system_directory(handle: *mut c_void, dir: &str) {
    unsafe {
         SYSTEM_DIR = c_dir.as_ptr() as *const libc::c_char;
         std::mem::forget(c_dir);
-        set_env(Some(system_dir_env_callback));
+        // Note: We don't register the callback here anymore.
+        // The unified log_environment_cb (registered in core.init()) handles both logging and system directory.
     }
-}
-
-extern "C" fn system_dir_env_callback(key: u32, data: *mut libc::c_void) -> bool {
-    if key == 13 {
-        let dir_ptr = data as *mut *const libc::c_char;
-        if !dir_ptr.is_null() {
-            unsafe {
-                *dir_ptr = SYSTEM_DIR;
-            }
-        }
-        return true;
-    }
-    false
 }
 
 static mut AUDIO_CB_COUNT: usize = 0;
