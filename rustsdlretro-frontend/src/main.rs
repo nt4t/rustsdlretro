@@ -1,5 +1,6 @@
 use rustsdlretro_core::Core;
 use rustsdlretro_core::video::VideoBackend;
+use rustsdlretro_core::zip_rom;
 #[cfg(feature = "config")]
 use rustsdlretro_core::config::{Config, Renderer};
 use rustsdlretro_core::input::InputReader;
@@ -155,13 +156,21 @@ fn main() {
     eprintln!("Input callbacks registered");
 
     eprintln!("Loading ROM: {}", rom_path);
-    if core.load_game(Path::new(rom_path)).is_err() {
-        eprintln!("Failed to load game");
+    if let Err(e) = core.load_game(Path::new(rom_path)) {
+        eprintln!("Failed to load game: {}", e);
         std::process::exit(1);
     }
     eprintln!("Load OK");
 
-    gui.set_rom_name(Path::new(rom_path).file_stem().map(|s| s.to_str().unwrap_or("Game")).unwrap_or("Game"));
+    let rom_name = if zip_rom::is_zip(Path::new(rom_path)) {
+        zip_rom::get_zip_rom_name(Path::new(rom_path))
+    } else {
+        Path::new(rom_path).file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Game")
+            .to_string()
+    };
+    gui.set_rom_name(&rom_name);
 
     let res_state = core.get_resolution_state();
 

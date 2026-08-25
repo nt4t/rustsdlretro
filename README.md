@@ -169,6 +169,7 @@ Any libretro core should work if it supports the standard libretro API.
 - GUI menu overlay with scrolling
 - Optimized overlay rendering (bulk memory writes, no flicker)
 - JSON configuration system with renderer selection
+- ZIP ROM loading (extracts ROM from .zip archives automatically)
 
 ### Pending
 - ZIP ROM loading

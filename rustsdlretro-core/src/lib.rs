@@ -19,6 +19,7 @@ pub mod audio_null;
 pub mod font;
 pub mod core_options;
 pub mod gui;
+pub mod zip_rom;
 
 #[cfg(feature = "minifb")]
 pub mod video_minifb;
@@ -563,17 +564,24 @@ impl Core {
 
     pub fn load_game(&mut self, path: &Path) -> Result<(), CoreError> {
         let load: RetroLoadGameFn = unsafe { get_symbol!(self.handle, "retro_load_game", RetroLoadGameFn) };
-        let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
-            CoreError { message: "Path contains null bytes".into() }
-        })?;
-        
+
         eprintln!("Loading ROM: need_fullpath={}, path={}", self.need_fullpath, path.display());
-        
+
+        // Handle ZIP files
+        if zip_rom::is_zip(path) {
+            return self.load_game_from_zip(&load, path);
+        }
+
+        // Regular file: read directly into memory buffer
         let rom_data = std::fs::read(path).map_err(|e| {
             CoreError { message: format!("Failed to read ROM: {}", e) }
         })?;
         eprintln!("ROM size: {} bytes", rom_data.len());
-        
+
+        let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+            CoreError { message: "Path contains null bytes".into() }
+        })?;
+
         let mut game_info = retro_game_info {
             path: c_path.as_ptr(),
             data: rom_data.as_ptr() as *const c_void,
@@ -581,12 +589,76 @@ impl Core {
             meta: ptr::null(),
         };
         std::mem::forget(rom_data);
-        
+
         let success = unsafe { load(&mut game_info) };
         if !success {
             return Err(CoreError { message: "retro_load_game returned false".into() });
         }
         eprintln!("Load OK");
+        Ok(())
+    }
+
+    fn load_game_from_zip(&self, load: &RetroLoadGameFn, path: &Path) -> Result<(), CoreError> {
+        eprintln!("ZIP archive detected, extracting ROM...");
+
+        if self.need_fullpath {
+            // Cores that need fullpath: extract to temp file
+            let (temp_path, _guard) = zip_rom::extract_zip_to_temp(path)
+                .map_err(|e| CoreError { message: format!("ZIP extraction failed: {}", e) })?;
+
+            eprintln!("Extracted ROM to temp file: {}", temp_path.display());
+
+            let c_path = CString::new(temp_path.as_os_str().as_bytes()).map_err(|_| {
+                CoreError { message: "Temp path contains null bytes".into() }
+            })?;
+
+            // Read the extracted ROM for the data pointer (some cores want both)
+            let rom_data = std::fs::read(&temp_path).map_err(|e| {
+                CoreError { message: format!("Failed to read temp ROM: {}", e) }
+            })?;
+
+            let mut game_info = retro_game_info {
+                path: c_path.as_ptr(),
+                data: rom_data.as_ptr() as *const c_void,
+                size: rom_data.len(),
+                meta: ptr::null(),
+            };
+            // Leak both the CString and rom_data so they persist for the core
+            std::mem::forget(c_path);
+            std::mem::forget(rom_data);
+
+            let success = unsafe { load(&mut game_info) };
+            if !success {
+                return Err(CoreError { message: "retro_load_game returned false".into() });
+            }
+        } else {
+            // Cores that don't need fullpath: extract to memory buffer
+            let (rom_data, filename) = zip_rom::extract_zip_to_memory(path)
+                .map_err(|e| CoreError { message: format!("ZIP extraction failed: {}", e) })?;
+
+            eprintln!("Extracted ROM '{}' from ZIP ({} bytes)", filename, rom_data.len());
+
+            // Use a synthetic path for logging; core won't access it since need_fullpath=false
+            let c_path = CString::new("zip://archive.zip/rom_file").map_err(|_| {
+                CoreError { message: "Path contains null bytes".into() }
+            })?;
+
+            let mut game_info = retro_game_info {
+                path: c_path.as_ptr(),
+                data: rom_data.as_ptr() as *const c_void,
+                size: rom_data.len(),
+                meta: ptr::null(),
+            };
+            std::mem::forget(c_path);
+            std::mem::forget(rom_data);
+
+            let success = unsafe { load(&mut game_info) };
+            if !success {
+                return Err(CoreError { message: "retro_load_game returned false".into() });
+            }
+        }
+
+        eprintln!("Load OK (from ZIP)");
         Ok(())
     }
 
