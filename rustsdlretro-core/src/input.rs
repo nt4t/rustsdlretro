@@ -67,6 +67,9 @@ fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
 pub struct InputReader {
     state: Arc<Mutex<[i32; 16]>>,
     just_pressed: Arc<Mutex<[bool; 16]>>,
+    /// Track previous key state to detect edge transitions (minifb mode)
+    #[cfg(feature = "minifb")]
+    prev_state: Arc<Mutex<[i32; 16]>>,
     #[cfg(feature = "minifb")]
     poll_fn: Option<KeyboardPollFn>,
 }
@@ -125,6 +128,8 @@ impl InputReader {
             state,
             just_pressed,
             #[cfg(feature = "minifb")]
+            prev_state: Arc::new(Mutex::new([0; 16])),
+            #[cfg(feature = "minifb")]
             poll_fn: None,
         })
     }
@@ -137,10 +142,13 @@ impl InputReader {
         let state = Arc::new(Mutex::new(state));
         let just_pressed: [bool; 16] = [false; 16];
         let just_pressed = Arc::new(Mutex::new(just_pressed));
-        
+        let prev_state: [i32; 16] = [0; 16];
+        let prev_state = Arc::new(Mutex::new(prev_state));
+
         InputReader {
             state,
             just_pressed,
+            prev_state,
             poll_fn: None, // Will be set by frontend
         }
     }
@@ -156,12 +164,13 @@ impl InputReader {
     pub fn poll_with_video(&self, video: &crate::video_minifb::MinifbVideo) {
         let mut s = self.state.lock().unwrap();
         let mut jp = self.just_pressed.lock().unwrap();
-        
+        let mut prev = self.prev_state.lock().unwrap();
+
         // Reset all states first
         for i in 0..16 {
             s[i] = 0;
         }
-        
+
         // Map minifb keys to joypad buttons
         let keys = vec![
             Key::Up, Key::Down, Key::Left, Key::Right,
@@ -169,14 +178,22 @@ impl InputReader {
             Key::Q, Key::O, Key::Enter, Key::NumPadEnter, Key::Space,
             Key::Escape, Key::F1,
         ];
-        
+
         for key in keys {
             if video.is_key_down(key) {
                 if let Some(joypad_id) = minifb_key_to_joypad(key) {
                     s[joypad_id as usize] = 1;
-                    jp[joypad_id as usize] = true;
+                    // Only set just_pressed on rising edge (was not pressed, now is)
+                    if prev[joypad_id as usize] == 0 {
+                        jp[joypad_id as usize] = true;
+                    }
                 }
             }
+        }
+
+        // Save current state for next frame's edge detection
+        for i in 0..16 {
+            prev[i] = s[i];
         }
     }
     
