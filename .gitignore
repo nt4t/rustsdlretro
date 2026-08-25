@@ -4,5 +4,6 @@ target/
 *.smc
 *.nes
 *.zip
+start_*.sh
 
 opencode.json
