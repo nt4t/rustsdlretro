@@ -99,7 +99,7 @@ fn find_rom_entry(data: &[u8]) -> io::Result<Option<(String, usize)>> {
             let mut best_idx = rom_indices[0].1;
             let mut best_size = 0u64;
 
-            for (name, idx) in &rom_indices {
+            for (_name, idx) in &rom_indices {
                 if let Ok(entry) = archive.by_index(*idx) {
                     if entry.size() > best_size {
                         best_size = entry.size();
@@ -188,7 +188,6 @@ pub fn extract_zip_to_temp(path: &Path) -> Result<(PathBuf, Box<TempFileGuard>),
     let full_temp_path = PathBuf::from(&full_temp_name);
 
     // Extract to file
-    use std::io::{Read, Write};
     let mut out_file = std::fs::File::create(&full_temp_path)
         .map_err(|e| format!("Failed to create temp file: {}", e))?;
 

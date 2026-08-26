@@ -44,6 +44,7 @@ fn minifb_key_to_joypad(key: Key) -> Option<c_int> {
     }
 }
 
+#[allow(unreachable_patterns)]
 fn keycode_to_joypad(keycode: u16) -> Option<c_int> {
     match keycode {
         103 | 17 => Some(JOYPAD_UP),

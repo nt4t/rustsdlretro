@@ -9,14 +9,16 @@ fn main() {
     println!("cargo:rerun-if-changed={}", libretro_h.display());
     println!("cargo:rerun-if-changed={}", src_dir.join("log_helper.c").display());
 
-    // Compile the C log helper (shim for variadic retro_log_printf_t)
-    cc::Build::new()
+    // Compile log_helper.c into a static archive using cc (properly handles linking)
+    let _ = cc::Build::new()
         .file(src_dir.join("log_helper.c"))
+        .flag("-fvisibility=default")  // Export symbols for dlsym
         .compile("rustsdlretro-log-helper");
 
-    // Tell linker to expose rust_log_callback from lib.rs
-    println!("cargo:rustc-link-arg=-Wl,--export-dynamic");
+    // Link the C shim into the Rust crate
+    println!("cargo:rustc-link-lib=static=rustsdlretro-log-helper");
 
+    // Generate bindings.rs using bindgen
     let bindings = bindgen::Builder::default()
         .header(libretro_h.to_str().unwrap())
         .derive_default(true)

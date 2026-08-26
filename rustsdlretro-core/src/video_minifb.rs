@@ -71,7 +71,7 @@ impl MinifbVideo {
             none: false,
         };
 
-        let mut window = Window::new(title, window_width as usize, window_height as usize, opts)
+        let window = Window::new(title, window_width as usize, window_height as usize, opts)
             .map_err(|e| format!("Failed to create window: {}", e))?;
 
         // Report display server type for diagnostics

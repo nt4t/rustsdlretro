@@ -1,5 +1,4 @@
 use std::ffi::{c_void, CString};
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use crate::CoreError;

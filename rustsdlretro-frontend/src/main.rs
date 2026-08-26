@@ -6,12 +6,9 @@ use rustsdlretro_core::config::{Config, Renderer};
 use rustsdlretro_core::input::InputReader;
 use rustsdlretro_core::gui::Gui;
 use rustsdlretro_core::Throttle;
-use rustsdlretro_core::ResolutionState;
 use std::path::Path;
 use std::ffi::c_void;
-use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 use std::mem::ManuallyDrop;
 
@@ -105,9 +102,9 @@ fn main() {
 
     eprintln!("Creating input reader...");
     #[cfg(feature = "minifb")]
-    let mut input = InputReader::new_keyboard();
+    let input = InputReader::new_keyboard();
     #[cfg(not(feature = "minifb"))]
-    let mut input = match InputReader::new() {
+    let input = match InputReader::new() {
         Ok(i) => i,
         Err(e) => { eprintln!("Failed to open input: {}", e); std::process::exit(1); }
     };
@@ -295,7 +292,7 @@ fn main() {
             let state_path = save_dir.as_ref().map(|dir| rustsdlretro_core::sram::state_path(dir, &rom_name));
             match action {
                 rustsdlretro_core::gui::SaveLoadAction::Save => {
-                    if let (Some(ref dir), Some(path)) = (save_dir.as_ref(), state_path) {
+                    if let Some(ref path) = state_path {
                         match core.save_state() {
                             Ok(state_data) => {
                                 if std::fs::write(&path, &state_data).is_ok() {
@@ -351,13 +348,13 @@ fn main() {
         // Check and apply queued audio rate changes (deferred from environment callback)
         unsafe {
             if let Ok(queue) = rustsdlretro_core::AUDIO_RATE_CHANGE_QUEUE.lock() {
-                if let Some(new_rate) = queue.take() {
+                if let Some(_rate) = queue.take() {
                     if !rustsdlretro_core::MAIN_AUDIO.is_null() {
                         #[cfg(not(feature = "null-audio"))]
                         {
-                            eprintln!("Applying deferred audio rate change: {} Hz", new_rate);
+                            eprintln!("Applying deferred audio rate change: {} Hz", rate);
                             let audio_ptr = rustsdlretro_core::MAIN_AUDIO as *mut rustsdlretro_core::audio::AudioDriver;
-                            (*audio_ptr).restart_with_rate(new_rate);
+                            (*audio_ptr).restart_with_rate(rate);
                         }
                     }
                 }

@@ -5,7 +5,7 @@
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::ptr;
+
 
 use libc::c_void;
 
@@ -283,7 +283,7 @@ pub unsafe fn parse_v2_definitions(ptr: *const retro_core_option_v2_definition) 
 
 /// Parse v2 categories (terminated by zeroed-out category struct)
 pub unsafe fn parse_v2_categories(ptr: *mut *mut c_char) -> Vec<CoreOptionCategory> {
-    let mut categories = Vec::new();
+    let categories = Vec::new();
     if ptr.is_null() {
         return categories;
     }

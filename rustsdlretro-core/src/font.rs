@@ -384,6 +384,7 @@ pub const BIG_FONT_GLYPHS: &[FontGlyph] = &[
     FontGlyph { step_width: 8, width: 5, height: 9, x: 1, y: -9, data_offset: 1027 },  // 0x7F
 ];
 
+#[allow(dead_code)]
 const BIT_REV_TABLE: [u8; 256] = [
     0x00, 0x80, 0x40, 0xC0, 0x20, 0xA0, 0x60, 0xE0,
     0x10, 0x90, 0x50, 0xD0, 0x30, 0xB0, 0x70, 0xF0,
@@ -461,7 +462,7 @@ unsafe fn draw_char_impl(
     fb_bpp: u32,
     x: i32,
     y: i32,
-    ch: u8,
+    _ch: u8,
     text_color: u32,
     shadow_color: u32,
     shadow: bool,

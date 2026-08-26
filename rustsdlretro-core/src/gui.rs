@@ -684,7 +684,7 @@ fn wrap_text(text: &str, max_chars: i32) -> Vec<String> {
 
     let mut lines = Vec::new();
     let mut current = String::new();
-    let mut word_start = 0;
+    let mut word_start: usize;
     let chars: Vec<char> = text.chars().collect();
 
     let mut i = 0;

@@ -105,6 +105,7 @@ macro_rules! get_symbol {
     }};
 }
 
+#[allow(dead_code)]
 extern "C" fn dummy_environment_cb(_key: u32, _data: *mut c_void) -> bool {
     false
 }
@@ -427,7 +428,7 @@ pub fn set_resolution_state(state: Arc<Mutex<ResolutionState>>) {
 }
 
 pub fn set_system_directory(handle: *mut c_void, dir: &str) {
-    let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(handle, "retro_set_environment", RetroSetEnvironmentFn) };
+    let _set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(handle, "retro_set_environment", RetroSetEnvironmentFn) };
     let c_dir = CString::new(dir).unwrap();
    unsafe {
         SYSTEM_DIR = c_dir.as_ptr() as *const libc::c_char;
@@ -557,8 +558,8 @@ impl Core {
     }
 
     pub fn init(&mut self) -> Result<(), CoreError> {
-        let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
-        unsafe { set_env(Some(log_environment_cb)) };
+        let _set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
+        unsafe { _set_env(Some(log_environment_cb)) };
         eprintln!("Environment callback registered");
 
         let get_info: RetroGetSystemInfoFn = unsafe { get_symbol!(self.handle, "retro_get_system_info", RetroGetSystemInfoFn) };
