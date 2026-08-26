@@ -2,13 +2,19 @@
 #include <stdio.h>
 
 /* C helper that expands variadic format string and calls Rust handler.
- * This is called from the non-variadic log_callback via dlsym(RTLD_DEFAULT). */
+ * The core (e.g. Beetle PSX) calls this via retro_log_printf with %s/%d etc.
+ * We use vsnprintf to fully expand the format, then pass the plain string to Rust.
+ */
 
-extern void rust_log_callback_va(unsigned level, const char* fmt, va_list ap);
+extern void rust_log_callback(unsigned level, const char* message);
+
+#define MAX_LOG 4096
 
 void __attribute__((visibility("default"))) rustsdlretro_log_handler(unsigned level, const char* fmt, ...) {
     va_list ap;
+    char buf[MAX_LOG];
     va_start(ap, fmt);
-    rust_log_callback_va(level, fmt, ap);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
+    rust_log_callback(level, buf);
 }

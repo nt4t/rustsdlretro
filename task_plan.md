@@ -71,7 +71,7 @@ Wire everything together in the main loop.
 - [x] Before program exit: auto-save SRAM (silent on failure)
 
 ### Phase 5: Testing
-**Status:** IN PROGRESS
+**Status:** IN PROGRESS — log format strings now fixed
 
 - [x] F2/F4 edge detection works correctly (fires once per press-release cycle)
 - [x] Save path uses correct core name from libretro info
@@ -80,6 +80,13 @@ Wire everything together in the main loop.
 - [ ] Test with snes9x2010 core (SRAM + RTC support)
 - [ ] Test with FCEUmm core (NES SRAM)
 - [ ] Test with mGBA core (GBA SRAM/Flash)
+
+### Log Format Strings Fix
+**Status:** COMPLETE ✅
+
+- [x] Fixed C shim `rustsdlretro_log_handler` — uses `vsnprintf` to expand `%s/%d/%lx`
+- [x] Removed broken `dlsym(RTLD_NOW)` lookup; direct extern reference instead
+- [x] Verified: all core log messages now show actual values (paths, addresses, firmware info)
 
 ---
 

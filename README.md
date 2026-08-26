@@ -181,11 +181,12 @@ Any libretro core should work if it supports the standard libretro API.
 - JSON configuration system with renderer selection
 - ZIP ROM loading (extracts ROM from .zip archives automatically)
 - Deferred audio rate change handling for stable emulation
+- Save states / SRAM persistence (F2/F4 keys)
+- Log format string expansion via C shim (vsnprintf)
 
 ### Pending
-- Save states / SRAM persistence
 - Language file loading (i18n)
-- ROM browser with core selector
+- ROM browser / core selector
 
 ## Development
 

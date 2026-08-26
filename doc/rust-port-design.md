@@ -48,11 +48,10 @@ Port the `sdlretro` frontend to Rust, targeting the Linux framebuffer and `/dev/
 - **VideoBackend trait**: Abstracted video rendering behind a trait for backend-agnostic GUI rendering
 - **MinifbVideo**: X11 windowed backend with letterboxing, overlay drawing, scale modes (X1/X2/X3/X4), borderless option
 - **Config system**: JSON config file at `~/.config/rustsdlretro/config.json`, renderer selection, window settings, CLI `--config` override
+- **Log format strings**: C shim expands `%s/%d/%lx` via `vsnprintf` before passing to Rust (fixes raw `%s` in core logs)
 
 ### Pending Features
 - **Audio**: ALSA PCM output with resampling (libsamplerate)
-- **Save states**: SRAM/RTC persistence
-- **ZIP ROM loading**: miniz_oxide extraction
 - **i18n**: Language file loading
 - **Core selector**: ROM browser with core matching
 

@@ -105,10 +105,18 @@ macro_rules! get_symbol {
     }};
 }
 
+/// C shim: receives variadic format args from core, expands them via vsnprintf,
+/// then calls rust_log_callback with the formatted string.
+extern "C" {
+    fn rustsdlretro_log_handler(level: u32, fmt: *const libc::c_char, ...);
+}
+
 #[allow(dead_code)]
 extern "C" fn dummy_environment_cb(_key: u32, _data: *mut c_void) -> bool {
     false
 }
+
+
 
 /// Rust log handler — called from C shim with pre-formatted string.
 #[no_mangle]
@@ -147,22 +155,9 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         let log_info = data as *mut retro_log_callback;
         if !log_info.is_null() {
             unsafe {
-                // Use dlsym to get the C shim function pointer (handles variadic args)
-                let handle = libc::dlopen(std::ptr::null(), libc::RTLD_NOW);
-                let sym_name = std::ffi::CString::new("rustsdlretro_log_handler").unwrap();
-                let fn_ptr: retro_log_printf_t = if !handle.is_null() {
-                    let raw = libc::dlsym(handle, sym_name.as_ptr());
-                    if !raw.is_null() {
-                        std::mem::transmute(raw)
-                    } else {
-                        // Fallback to non-variadic handler (format strings won't expand)
-                        std::mem::transmute(log_callback as *const c_void)
-                    }
-                } else {
-                    // dlopen(NULL) failed, use fallback
-                    std::mem::transmute(log_callback as *const c_void)
-                };
-                (*log_info).log = fn_ptr;
+                // Point the core to our C shim which expands variadic format strings,
+                // then calls rust_log_callback with the pre-formatted message.
+                (*log_info).log = Some(rustsdlretro_log_handler);
             }
         }
         return true;
