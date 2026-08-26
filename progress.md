@@ -1,79 +1,53 @@
-# Progress: Save State + SRAM Persistence
+# Progress: Web API Implementation
 
 ## Session Log
 
-### Session — Save States Implementation
-- [x] Read design doc `doc/save-state-design.md`
-- [x] Phase 1: Added FFI function types for serialization in `lib.rs`:
-  - `RetroSerializeSizeFn`, `RetroSerializeFn`, `RetroUnserializeFn`
-  - `Core::save_state()` — allocates buffer, calls retro_serialize, returns Vec<u8>
-  - `Core::load_state()` — calls retro_unserialize from bytes
-- [x] Phase 2: Created `rustsdlretro-core/src/sram.rs`:
-  - Constants: `RETRO_MEMORY_SAVE_RAM`, `RETRO_MEMORY_RTC`
-  - Path helpers: `get_save_dir()`, `state_path()`, `sram_path()`, `rtc_path()`
-  - `ensure_save_dir()` — creates `{system_dir}/saves/{core_name}/`
-  - `save_sram()` — reads SRAM/RTC via retro_get_memory_data, writes to disk
-  - `load_sram()` — reads from disk, copies into core memory via retro_get_memory_data
-  - Uses dlsym for memory functions (not in bindgen allowlist)
-- [x] Phase 3: Updated `gui.rs`:
-  - Added `SaveLoadAction` enum (Save, Load)
-  - Added `flash_message: Option<(String, u64)>` field to Gui struct
-  - Added `check_save_load_keys()` — detects F2 (save)/F4 (load) via evdev keycodes 60/62
-  - Added `show_flash_message()` and `flash_is_visible()` methods
-  - Flash message renders centered at top of screen, ~2 second fade-out
-  - Fixed render method variable ordering for flash message rendering
-- [x] Phase 4: Updated `rustsdlretro-frontend/src/main.rs`:
-  - Auto-create save directory after ROM load
-  - Auto-load SRAM after ROM load (silent on failure)
-  - Main loop checks F2/F4 keys before each frame, saves/loads state files
-  - Flash messages shown for Save/Load success/failure
-  - Auto-save SRAM on program exit (before core.unload())
-- [x] Build passes with no errors
+| Date | Phase | Action | Result |
+|------|-------|--------|--------|
+| 2025-01-XX | Planning | Codebase analysis (main.rs, lib.rs, input.rs, gui.rs) | ✅ Complete understanding of architecture |
+| 2025-01-XX | Planning | WebSocket crate evaluation — selected tungstenite (binary frame support) | ✅ Ready for PNG streaming |
+| 2025-01-XX | Planning | Created task_plan.md with PNG frame streaming added | ✅ Plan documented |
+| 2025-01-XX | Planning | Created findings.md with PNG encoding research | ✅ Findings stored |
 
-## Files Created/Modified
+## Current Phase: Phase 0 — Research & Dependencies
 
-| File | Action | Description |
-|------|--------|-------------|
-| `rustsdlretro-core/src/lib.rs` | Modified | Added serialization FFI types + save_state/load_state methods |
-| `rustsdlretro-core/src/sram.rs` | **Created** | SRAM/RTC persistence module (150 lines) |
-| `rustsdlretro-core/src/gui.rs` | Modified | Save/load key detection + flash message system (+60 lines) |
-| `rustsdlretro-frontend/src/main.rs` | Modified | Main loop integration, auto-save/load SRAM (+80 lines) |
+### Completed
+- [x] Analyzed existing codebase structure and patterns
+- [x] Identified thread-safety constraints (single-threaded Core, Arc<Mutex> for input)
+- [x] Evaluated WebSocket crates — selected tungstenite (binary frame support)
+- [x] Designed JSON message protocol for client↔server communication
+- [x] Determined input mapping strategy: direct state injection into InputReader
+- [x] Researched PNG encoding — `png` crate, throttle to 15-30fps
+- [x] API is optional via Cargo feature flag `api`
 
-## Build Status
-✅ Compiles clean (cargo build succeeds)
+### In Progress
+- [ ] Phase 0: Select exact crate versions and add to Cargo.toml
 
-### Fix: Log format strings not expanded (%s, %d, etc.)
-- Bug: `retro_log_printf_t` is a variadic C function (`level, fmt, ...`) but our Rust callback only received 2 params → format args dropped
-- First attempt (broken): `log_helper.c` with dlsym lookup failed — symbol stripped by linker since nothing in Rust referenced it
-- Fix: Changed to direct extern reference in lib.rs + C shim uses vsnprintf to expand format before calling rust_log_callback(buf)
-- Verified: all core logs now show actual values (paths, addresses, firmware SHA1)
+### Upcoming Phases
+1. **Phase 1**: Shared State Architecture (`api.rs`)
+2. **Phase 2**: WebSocket Server + PNG Streaming (`api_server.rs`)
+3. **Phase 3**: Frontend Integration (`main.rs` modifications)
+4. **Phase 5**: Frame Streaming (PNG encoding, throttling)
 
-### Fix: F2/F4 not working in minifb mode
-- Added `f2_just_pressed`/`f4_just_pressed` tracking fields to InputReader (minifb only)
-- Updated `poll_with_video()` to detect F2/F4 edge transitions via `Key::F2` / `Key::F4`
-- Changed `check_save_load_keys()` in gui.rs to use cfg-gated approach:
-  - minifb: uses `was_f_key_just_pressed(2/4)`
-  - fbdev: uses `was_key_just_pressed(60/62)`
+## Build Configuration
 
-### Fix: F2/F4 hang (deadlock)
-- The first fix had a bug: `poll_with_video` locked `f2_just_pressed` twice without releasing, causing deadlock
-- Fixed by using single lock scope per key with `let mut flag = self.f2_just_pressed.lock().unwrap()`
+**Feature flag**: `api` (optional, off by default)
+```bash
+cargo build --release                    # No API — minimal binary
+cargo build --release --features api     # With WebSocket + PNG streaming
+```
 
-### Fix: F2/F4 firing every frame (not edge-triggered)
-- Bug 1: flag was cleared immediately in `poll_with_video`, so next frame saw "was not pressed + is down" again → fire again
-- Bug 2: even with persistent flag, while key physically held, `was_f_key_just_pressed()` clears it, then next poll sees "flag=false + f2_down=true"
-- Fixed: track `f2_held`/`f4_held` (previous-frame state) like evdev does with `prev_state`; only set just_pressed on rising edge
+1. **Port configuration**: Should API port be configurable via CLI flag or config file?
+   - *Tentative*: `--api-port N` CLI flag is simplest; add to config later if needed
 
-### Fix: Save directory used wrong core name
-- Bug: `gui.core_name` defaulted to "RetroCore" and was never set from the libretro core
-- Fix: Store core name in `Core` struct during init() (from `retro_get_system_info`)
-- Now uses actual core name (e.g., "Beetle PSX", "snes9x2010") for save directory path
+2. **PNG frame rate**: What streaming FPS target? (60 = CPU heavy, 15 = smooth enough)
+   - *Tentative*: 30fps default; clients build their own renderers
 
-## Pending Testing
-- [ ] Test F2 save + game reset + F4 load (verify exact state match)
-- [ ] Test auto-SRAM persistence across program restarts
-- [ ] Test with snes9x2010 core
-- [ ] Test with FCEUmm core
-- [ ] Test with mGBA core
-- [ ] Test F4 with no existing state file (silent ignore)
-- [ ] Test corrupted state file handling
+3. **Concurrent WebSocket clients**: How many simultaneous connections?
+   - *Tentative*: Support multiple; frame step is "last client wins" semantics
+
+3. **Should we add a built-in web UI?**
+   - *Decision*: No — Phase 5 can provide raw frame streaming for external clients to build their own UI. Keep core focused on API, not presentation.
+
+## Errors Encountered
+None yet (planning phase).

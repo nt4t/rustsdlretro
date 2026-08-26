@@ -1,92 +1,90 @@
-# Task Plan: Save State + SRAM Persistence
+# Task Plan: Web API for Emulator Control
 
 ## Goal
-Implement full save state support (F2/F4 keyboard shortcuts) and automatic SRAM persistence for rustsdlretro.
+Implement a WebSocket-based control API that allows external clients to:
+- **Save/Load State** — Save/load state snapshots via WebSocket
+- **Send Input Keys** — Map gamepad/keyboard input over the wire
+- **Frame-by-frame execution** — Step through emulation one frame at a time
+- **PNG frame streaming** — Send raw PNG frames over WebSocket for external clients
 
-## Design Reference
-Full design doc: `doc/save-state-design.md`
+## Design Decisions (to be confirmed)
 
-## Trigger Mechanism
-| Key | Action | Context |
-|-----|--------|---------|
-| F2  | Save current state | Anytime (gameplay or menu) |
-| F4  | Load last saved state | Anytime (gameplay or menu) |
-
-## File Layout
-```
-~/.config/rustsdlretro/saves/{core_name}/{game_name}.{state|sav|rtc}
-```
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Transport | WebSocket only (binary + text) | Input, frames, control messages |
+| WS crate | `tungstenite` (optional) | Supports binary frames natively |
+| PNG encoding | `png` crate (optional) | Lightweight, no heavy image dependency |
+| Architecture | Dedicated control thread with shared state | Decouples web server from main emulation loop |
+| Input model | JSON commands → translate to existing InputReader state | Reuse existing input pipeline, don't duplicate mapping |
+| State management | Atomic flags + mutex-protected Core handle | Minimal locking, safe concurrent access |
 
 ---
 
-### Phase 1: FFI Bindings + Core Methods (`lib.rs`)
+## Phase 0: Research & Dependencies
 **Status:** COMPLETE ✅
+- [x] Evaluate WebSocket crates — selected `tungstenite` (supports binary frames)
+- [x] No HTTP server needed
+- [x] Assess PNG encoding options — selected `png` crate
+- [x] API is optional via Cargo feature flag `api`
 
-Add libretro serialization FFI bindings and `Core` methods.
+## Phase 1: Shared State Architecture (`api.rs` — new module)
+**Status:** NOT STARTED
+- [ ] Create `rustsdlretro-core/src/api.rs` (behind `#[cfg(feature = "api")]`)
+- [ ] Define `ApiState` struct with atomic flags:
+  - `run_requested`, `pause_requested`, `step_frame` (frame-by-frame flag)
+  - `input_snapshot` — current key states from web client
+  - `save_requested`, `load_requested` — one-shot actions
 
-- [x] Add type aliases for `RetroSerializeSizeFn`, `RetroSerializeFn`, `RetroUnserializeFn`
-- [x] Add helper methods in `Core`:
-  - `save_state(&self) -> Result<Vec<u8>, CoreError>` — serialize to buffer
-  - `load_state(&mut self, data: &[u8]) -> Result<(), CoreError>` — deserialize from buffer
-- [x] Store core name from `retro_get_system_info()` during init
+- [ ] Implement thread-safe getters/setters for all state
+- [ ] Add `ApiState::consume_frame_step()` — returns true and clears flag
 
-### Phase 2: SRAM Module (`sram.rs` — new file)
+## Phase 2: WebSocket Server (`api_server.rs` — new module)
+**Status:** NOT STARTED
+- [ ] Create `rustsdlretro-core/src/api_server.rs` (behind `#[cfg(feature = "api")]`)
+- [ ] Implement message protocol (JSON):
+  ```json
+  // Input command (send continuously or on change)
+  {"type": "input", "port": 0, "buttons": {"up": true, "down": false, ...}}
+
+  // Frame step request
+  {"type": "step"}
+
+  // Save/Load state
+  {"type": "save_state"}
+  {"type": "load_state"}
+
+```
+- [ ] Implement server response messages:
+  ```json
+  {"type": "status", "running": true, "fps": 59.94, "width": 320, "height": 240}
+  {"type": "frame_done"}                              // frame step ack
+  {"type": "flash", "message": "State Saved"}
+  {"type": "error", "message": "..."}
+  ```
+- [ ] Start server on configurable port (default: `18932` — retro!)
+
+## Phase 3: Frontend Integration (`main.rs`)
+**Status:** NOT STARTED
+- [ ] Parse `--api-port N` CLI flag (only when compiled with `api` feature)
+- [ ] Gate API initialization behind `#[cfg(feature = "api")]` in main
+- [ ] In main loop, check `ApiState` flags BEFORE `core.run()`:
+  - If `step_frame`, set it and run one frame then return to idle
+  - If not running (paused), skip frame throttle wait
+- [ ] Map web client input → existing InputReader state on each poll cycle
+- [ ] Connect save/load requests from API to existing F2/F4 logic
+- [ ] Relay flash messages and status updates back through WebSocket
+
+## Phase 4: DONE — No HTTP needed (ROM upload out of scope)
 **Status:** COMPLETE ✅
+- [x] ROM upload removed from requirements
 
-Create dedicated module for SRAM/RTC persistence.
-
-- [x] Create `rustsdlretro-core/src/sram.rs`
-- [x] Add FFI types for `retro_get_memory_data`, `retro_get_memory_size` (manual dlsym)
-- [x] Implement standalone functions:
-  - `ensure_save_dir(system_dir, core_name) -> PathBuf`
-  - `state_path(save_dir, game_name) -> PathBuf`
-  - `sram_path()`, `rtc_path()`
-  - `save_sram(handle, game_name, save_dir)` — SRAM → disk
-  - `load_sram(handle, game_name, save_dir)` — disk → SRAM
-- [x] Handle RETRO_MEMORY_SAVE_RAM and RETRO_MEMORY_RTC
-
-### Phase 3: Keyboard Detection + Flash Message (`gui.rs`)
-**Status:** COMPLETE ✅
-
-Add F2/F4 key detection to existing GUI system.
-
-- [x] Add `SaveLoadAction` enum (Save, Load)
-- [x] Add `check_save_load_keys(&mut self, input: &InputReader) -> Option<SaveLoadAction>`
-  - minifb mode: uses `was_f_key_just_pressed(2/4)` with dedicated tracking
-  - fbdev mode: uses `was_key_just_pressed(60/62)` evdev keycodes
-- [x] Track just-pressed state for edge-triggered behavior
-- [x] Add `flash_message: Option<(String, u64)>` field to Gui struct (with timestamp)
-- [x] Add `show_flash_message(&mut self, msg: &str)` method
-- [x] Render flash message in `Gui::render()` — centered top, ~2 seconds with fade
-
-### Phase 4: Frontend Integration (`main.rs`)
-**Status:** COMPLETE ✅
-
-Wire everything together in the main loop.
-
-- [x] Create save directory at startup using actual core name from `retro_get_system_info()`
-- [ ] Set core name on GUI for menu rendering
-- [x] After `core.load_game()`: auto-load SRAM (silent on failure)
-- [x] In main loop: check save/load keys, act on results with flash messages
-- [x] Before program exit: auto-save SRAM (silent on failure)
-
-### Phase 5: Testing
-**Status:** IN PROGRESS — log format strings now fixed
-
-- [x] F2/F4 edge detection works correctly (fires once per press-release cycle)
-- [x] Save path uses correct core name from libretro info
-- [ ] Test F2 save + game reset + F4 load (verify exact state match) — pending user testing
-- [ ] Test auto-SRAM persistence across program restarts — pending user testing
-- [ ] Test with snes9x2010 core (SRAM + RTC support)
-- [ ] Test with FCEUmm core (NES SRAM)
-- [ ] Test with mGBA core (GBA SRAM/Flash)
-
-### Log Format Strings Fix
-**Status:** COMPLETE ✅
-
-- [x] Fixed C shim `rustsdlretro_log_handler` — uses `vsnprintf` to expand `%s/%d/%lx`
-- [x] Removed broken `dlsym(RTLD_NOW)` lookup; direct extern reference instead
-- [x] Verified: all core log messages now show actual values (paths, addresses, firmware info)
+## Phase 5: PNG Frame Streaming (`api_server.rs` extension)
+**Status:** NOT STARTED
+- [ ] All PNG code behind `#[cfg(feature = "api")]`
+- [ ] Capture framebuffer buffer after each frame (from VideoBackend)
+- [ ] Encode RGBA → PNG (native core resolution, e.g. 320×240)
+- [ ] Send as binary WebSocket message: `[width u16][height u16][PNG bytes]`
+- [ ] Frame rate limiting (throttle to ~15-30 fps over WS)
 
 ---
 
@@ -94,10 +92,60 @@ Wire everything together in the main loop.
 
 | File | Action | Description |
 |------|--------|-------------|
-| `rustsdlretro-core/src/lib.rs` | Modify | FFI bindings + save_state/load_state methods |
-| `rustsdlretro-core/src/sram.rs` | **Create** | SRAM manager module |
-| `rustsdlretro-core/src/gui.rs` | Modify | Save/load key detection + flash message |
-| `rustsdlretro-frontend/src/main.rs` | Modify | Main loop integration, auto-save/load SRAM |
+| `rustsdlretro-core/src/api.rs` | **Create** | Shared state struct, atomic flags, thread-safe API |
+| `rustsdlretro-core/src/api_server.rs` | **Create** | WebSocket server + PNG frame streaming |
+| `rustsdlretro-core/Cargo.toml` | Modify | Add optional `tungstenite`, `png` deps + `api` feature |
+| `rustsdlretro-frontend/src/main.rs` | Modify | Conditional compilation: `#[cfg(feature = "api")]` for API init
 
-## Dependencies
-No new crates needed. All std::fs and existing libc FFI.
+## Dependencies to Add
+```toml
+# rustsdlretro-core/Cargo.toml
+[dependencies]
+tungstenite = { version = "0.23", features = ["native-tls"], optional = true }
+png = { version = "0.17", optional = true }
+
+[features]
+default = []
+api = ["dep:tungstenite", "dep:png"]
+```
+
+---
+
+## WebSocket Protocol Details
+
+### Client → Server Messages
+
+| Type | Payload | Description |
+|------|---------|-------------|
+| `input` | `{port, buttons: {up, down, left, right, a, b, x, y, l, r, start, select}}` | Joypad state snapshot |
+| `step` | `{}` | Run exactly one frame (pauses after) |
+| `play` | `{}` | Resume continuous playback |
+| `pause` | `{}` | Pause emulation |
+| `save_state` | `{}` | Trigger save state (same as F2) |
+| `load_state` | `{}` | Trigger load state (same as F4) |
+| `set_option` | `{key, value}` | Set core option dynamically |
+
+### Server → Client Messages
+
+| Type | Payload | Description |
+|------|---------|-------------|
+| `status` | `{running: bool, fps: float, width: u32, height: u32}` | Status update (sent on change or on request) |
+| `frame_done` | `{}` | Acknowledge single frame executed (for step mode) |
+| `flash` | `{message, duration_ms}` | Flash message relay |
+| `error` | `{message}` | Error notification |
+
+### Binary Frame Messages (PNG Streaming)
+
+Server sends binary frames to connected clients:
+```
+[2-byte header: width (u16 BE), height (u16 BE)] [raw PNG bytes]
+```
+
+Clients build their own renderers — server just provides raw PNG data.
+
+---
+
+## Errors to Anticipate
+- **Thread safety**: Core.run() is not reentrant; must lock around all Core access
+- **Audio drift**: Frame stepping may cause audio buffer underruns — handle gracefully
+- **PNG encoding CPU cost**: Encoding every frame at 60fps will be expensive — throttle to ~15-30fps or only encode on user request
