@@ -409,7 +409,7 @@ impl Gui {
             // In fbdev mode, ESC still works as the toggle key.
             let esc_pressed = input.was_key_just_pressed(1);
             #[cfg(feature = "minifb")]
-            let f1_pressed = input.was_key_just_pressed(59); // F1 scancode
+            let f1_pressed = input.was_f_key_just_pressed(1); // F1 scancode
             #[cfg(not(feature = "minifb"))]
             let f1_pressed = false;
             if esc_pressed || f1_pressed {
@@ -494,7 +494,7 @@ impl Gui {
 
             // F1 or ESC closes menu (ESC may also close window in minifb)
             #[cfg(feature = "minifb")]
-            let f1_pressed = input.was_key_just_pressed(59);
+            let f1_pressed = input.was_f_key_just_pressed(1); // F1 scancode
             #[cfg(not(feature = "minifb"))]
             let f1_pressed = false;
             if input.was_key_just_pressed(1) || f1_pressed {
