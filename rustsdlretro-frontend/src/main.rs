@@ -385,11 +385,21 @@ fn main() {
         if let Some(ref api) = api_state {
             let mut locked = api.lock().unwrap();
 
-            // Merge web client input into InputReader state
+            // Merge web client input into InputReader state.
+            // Only merge buttons from ports where the snapshot is non-default
+            // (i.e., a web client explicitly sent an input message for that port).
+            // This preserves local keyboard state when no web client is connected.
             unsafe {
                 if let Some(input) = MAIN_INPUT.as_ref() {
                     for port in 0..4u32 {
                         let snapshot = locked.get_input_snapshot(port);
+                        // Skip ports with default (all-false) snapshots — local keyboard input preserved
+                        if !snapshot.up && !snapshot.down && !snapshot.left && !snapshot.right
+                            && !snapshot.a && !snapshot.b && !snapshot.x && !snapshot.y
+                            && !snapshot.l && !snapshot.r && !snapshot.start && !snapshot.select
+                        {
+                            continue;
+                        }
                         // Apply each button to the corresponding slot in InputReader
                         let btns: [(u32, bool); 12] = [
                             (0, snapshot.b),    // B
