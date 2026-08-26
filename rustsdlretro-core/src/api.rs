@@ -169,7 +169,7 @@ pub struct ApiState {
 
 impl ApiState {
     pub fn new() -> Self {
-        Self::default()
+        Self { running: true, ..Self::default() }
     }
 
     // ── Frame control ───────────────────────────────────────────────────────

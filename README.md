@@ -17,6 +17,7 @@ Simple rust libretro frontend for Linux. Runs retro game emulators on:
 - **JSON configuration** - Renderer selection, window settings, input device (requires `--features config`)
 - **ZIP ROM loading** - Automatic extraction of ROMs from ZIP archives
 - **Launcher scripts** - Quick launch scripts for NES, SNES, and PSX games
+- **WebSocket API** - Remote control via WebSocket: play/pause/step, save/load state, gamepad input (requires `api` feature)
 
 ## Architecture
 
@@ -24,6 +25,7 @@ Simple rust libretro frontend for Linux. Runs retro game emulators on:
 rustsdlretro/
 ├── rustsdlretro-core/          # Core library
 │   ├── lib.rs              # Core lifecycle, FFI bindings, environment callback
+│   ├── api.rs              # WebSocket control API (optional)
 │   ├── video.rs            # VideoBackend trait + FbdevVideo: mmap framebuffer, pixel conversion
 │   ├── video_minifb.rs     # MinifbVideo: X11 windowed backend, buffer rendering
 │   ├── audio.rs            # ALSA audio driver with ring buffer
@@ -73,6 +75,7 @@ cargo build --release --features minifb,config
 | `rustsdlretro-core` | `minifb = ["dep:minifb"]` | X11 windowed backend via minifb |
 | `rustsdlretro-core` | `config = ["dep:serde", "dep:serde_json"]` | JSON config file parsing |
 | `rustsdlretro-core` | `null-audio` | Null/silent audio driver fallback |
+| `rustsdlretro-core` | `api = ["dep:tungstenite", "dep:png", "dep:tokio"]` | WebSocket control API |
 | `rustsdlretro-frontend` | `minifb` | Enables minifb keyboard polling |
 | `rustsdlretro-frontend` | `config` | Enables config-based renderer selection |
 | `rustsdlretro-frontend` | `null-audio` | Enables null audio driver fallback |
@@ -86,6 +89,7 @@ cargo build --release --features minifb,config
 | **Desktop (X11 window only)** | `cargo build --release --features minifb` |
 | **Desktop with config file** | `cargo build --release --features "minifb,config"` |
 | **Full desktop + null audio fallback** | `cargo build --release --features "minifb,config,null-audio"` |
+| **Desktop with WebSocket API** | `cargo build --release --features "minifb,api"` |
 | **Embedded (Raspberry Pi)** | `cargo build --release` |
 | **Cross-compile for RPi** | `cargo build --release --target armv7-unknown-linux-gnueabihf`
 
@@ -116,6 +120,36 @@ Quick launch scripts are provided for common consoles:
 # PlayStation
 ./start_psx.sh
 ```
+
+### WebSocket API (requires `api` feature)
+
+Built-in WebSocket server on port **18932** for remote control:
+
+```bash
+# Start with API enabled
+./target/release/rustsdlretro <core.so> <game.rom> --api-port 18932
+```
+
+**Client → Server messages (JSON):**
+
+| Type | Payload | Description |
+|------|---------|-------------|
+| `input` | `{port, buttons: {up, down, left, right, a, b, x, y, l, r, start, select}}` | Joypad state snapshot |
+| `step` | `{}` | Run one frame (pauses after) |
+| `play` | `{}` | Resume continuous playback |
+| `pause` | `{}` | Pause emulation |
+| `save_state` | `{}` | Trigger save state (F2 equivalent) |
+| `load_state` | `{}` | Trigger load state (F4 equivalent) |
+
+**Server → Client messages:**
+
+```json
+{"type": "status", "running": true, "fps": 59.94, "width": 320, "height": 240}
+{"type": "frame_done"}          // step ack
+{"type": "flash", "message": "State Saved"}
+```
+
+**Test script:** `node test_api.js` — exercises the full API flow (Play → Save → Load → Step).
 
 ### Controls
 
@@ -193,10 +227,25 @@ Any libretro core should work if it supports the standard libretro API.
 - Deferred audio rate change handling for stable emulation
 - Save states / SRAM persistence (F2/F4 keys)
 - Log format string expansion via C shim (vsnprintf)
+- WebSocket control API with JSON message protocol
+  - Remote play/pause/frame-step controls
+  - Save/load state over the wire
+  - Gamepad input mapping from web clients
+  - Thread-safe shared state architecture
 
 ### Pending
 - Language file loading (i18n)
 - ROM browser / core selector
+
+## Testing
+
+### WebSocket API Test
+```bash
+npm install ws   # one-time setup
+cargo build --release --features "minifb,api"
+# Start emulator in one terminal, then:
+node test_api.js
+```
 
 ## Development
 
