@@ -42,6 +42,12 @@
 ## Build Status
 ✅ Compiles clean (cargo build succeeds)
 
+### Fix: Log format strings not expanded (%s, %d, etc.)
+- Bug: `retro_log_printf_t` is a variadic C function (`level, fmt, ...`) but our Rust callback only received 2 params → format args were dropped
+- Fix: Added `log_helper.c` — C shim that receives va_list, uses vsnprintf to expand format string, then calls non-variadic Rust handler with formatted message
+- Uses `dlsym(RTLD_NOW)` at env-callback registration time to get the C wrapper's address
+- Added `cc = "1"` build dependency for compiling log_helper.c
+
 ### Fix: F2/F4 not working in minifb mode
 - Added `f2_just_pressed`/`f4_just_pressed` tracking fields to InputReader (minifb only)
 - Updated `poll_with_video()` to detect F2/F4 edge transitions via `Key::F2` / `Key::F4`

@@ -709,6 +709,7 @@ version = "0.1.0"
 dependencies = [
  "alsa",
  "bindgen",
+ "cc",
  "evdev",
  "libc",
  "minifb",

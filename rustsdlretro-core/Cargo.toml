@@ -21,3 +21,4 @@ serde_json = { version = "1.0", optional = true }
 
 [build-dependencies]
 bindgen = "0.71"
+cc = "1"

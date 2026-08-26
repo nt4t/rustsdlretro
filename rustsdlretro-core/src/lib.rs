@@ -109,10 +109,23 @@ extern "C" fn dummy_environment_cb(_key: u32, _data: *mut c_void) -> bool {
     false
 }
 
-extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
+/// Rust log handler — called from C shim with pre-formatted string.
+#[no_mangle]
+extern "C" fn rust_log_callback(level: u32, message: *const libc::c_char) {
     let msg = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
-    eprintln!("[beetle LOG level={}]", level);
-    eprintln!("[beetle] {}", msg);
+    eprintln!("[LOG level={}]", level);
+    if !msg.is_empty() {
+        eprintln!("{}", msg);
+    }
+}
+
+/// Fallback log handler (non-variadic, format strings won't expand).
+unsafe extern "C" fn log_callback(level: u32, message: *const libc::c_char) {
+    let msg = CStr::from_ptr(message).to_string_lossy().into_owned();
+    eprintln!("[LOG level={}]", level);
+    if !msg.is_empty() {
+        eprintln!("{}", msg);
+    }
 }
 
 static mut CORE_OPTIONS: Option<core_options::CoreOptions> = None;
@@ -133,7 +146,21 @@ extern "C" fn log_environment_cb(key: u32, data: *mut libc::c_void) -> bool {
         let log_info = data as *mut retro_log_callback;
         if !log_info.is_null() {
             unsafe {
-                let fn_ptr: retro_log_printf_t = std::mem::transmute(log_callback as *const c_void);
+                // Use dlsym to get the C shim function pointer (handles variadic args)
+                let handle = libc::dlopen(std::ptr::null(), libc::RTLD_NOW);
+                let sym_name = std::ffi::CString::new("rustsdlretro_log_handler").unwrap();
+                let fn_ptr: retro_log_printf_t = if !handle.is_null() {
+                    let raw = libc::dlsym(handle, sym_name.as_ptr());
+                    if !raw.is_null() {
+                        std::mem::transmute(raw)
+                    } else {
+                        // Fallback to non-variadic handler (format strings won't expand)
+                        std::mem::transmute(log_callback as *const c_void)
+                    }
+                } else {
+                    // dlopen(NULL) failed, use fallback
+                    std::mem::transmute(log_callback as *const c_void)
+                };
                 (*log_info).log = fn_ptr;
             }
         }
