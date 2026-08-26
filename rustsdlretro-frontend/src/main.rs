@@ -6,9 +6,14 @@ use rustsdlretro_core::config::{Config, Renderer};
 use rustsdlretro_core::input::InputReader;
 use rustsdlretro_core::gui::Gui;
 use rustsdlretro_core::Throttle;
+#[cfg(feature = "api")]
+use rustsdlretro_core::api::{self as api_mod, SharedApiState};
+#[cfg(not(feature = "api"))]
+type SharedApiState = ();
 use std::path::Path;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use std::mem::ManuallyDrop;
 
@@ -67,6 +72,30 @@ fn main() {
 
     let core_path = &args[1];
     let rom_path = &args[2];
+
+    // Parse optional --api-port flag
+    #[cfg(feature = "api")]
+    let api_port: u16 = {
+        let mut port: Option<u16> = None;
+        let mut i = 3;
+        while i < args.len() {
+            if args[i] == "--api-port" && i + 1 < args.len() {
+                if let Ok(p) = args[i + 1].parse::<u16>() {
+                    port = Some(p);
+                    eprintln!("[API] WebSocket control on port {}", p);
+                }
+                break;
+            }
+            i += 1;
+        }
+        port.unwrap_or(18932)
+    };
+
+    // API state placeholder - will be created after resolution state is available
+    #[cfg(feature = "api")]
+    let _api_state_init: Option<rustsdlretro_core::api::SharedApiState> = None;
+    #[cfg(not(feature = "api"))]
+    let api_state: Option<SharedApiState> = None;
 
     // Create video backend
     let mut video: Box<dyn VideoBackend> = {
@@ -209,6 +238,17 @@ fn main() {
 
     rustsdlretro_core::set_resolution_state(res_state.clone());
 
+    // Create API state with resolution reference (after ROM loaded, resolution known)
+    #[cfg(feature = "api")]
+    let api_state: Option<SharedApiState> = {
+        if args.iter().any(|a| a == "--api-port") {
+            eprintln!("[API] Creating API state on port {}", api_port);
+            Some(api_mod::create_api_state(Arc::clone(&res_state)))
+        } else {
+            None
+        }
+    };
+
     // Set video refresh callback after AV info is available
     core.set_video_refresh(Some(video_refresh_cb));
     eprintln!("Video callback registered");
@@ -340,6 +380,109 @@ fn main() {
             }
         }
 
+        // ── API state integration (if enabled) ────────────────────────────────
+        #[cfg(feature = "api")]
+        if let Some(ref api) = api_state {
+            let mut locked = api.lock().unwrap();
+
+            // Merge web client input into InputReader state
+            unsafe {
+                if let Some(input) = MAIN_INPUT.as_ref() {
+                    for port in 0..4u32 {
+                        let snapshot = locked.get_input_snapshot(port);
+                        // Apply each button to the corresponding slot in InputReader
+                        let btns: [(u32, bool); 12] = [
+                            (0, snapshot.b),    // B
+                            (1, snapshot.y),    // Y
+                            (2, snapshot.select),
+                            (3, snapshot.start),
+                            (4, snapshot.up),
+                            (5, snapshot.down),
+                            (6, snapshot.left),
+                            (7, snapshot.right),
+                            (8, snapshot.a),    // A
+                            (9, snapshot.x),    // X
+                            (10, snapshot.l),   // L
+                            (11, snapshot.r),   // R
+                        ];
+                        for (id, pressed) in btns {
+                            let base = (port as usize) * 16;
+                            input.set_button(base + id as usize, if pressed { 1 } else { 0 });
+                        }
+                    }
+                }
+            }
+
+            // Check for save/load requests from API
+            if locked.take_save_request() {
+                let state_path = save_dir.as_ref().map(|dir| rustsdlretro_core::sram::state_path(dir, &rom_name));
+                if let Some(ref path) = state_path {
+                    match core.save_state() {
+                        Ok(state_data) => {
+                            if std::fs::write(&path, &state_data).is_ok() {
+                                gui.show_flash_message("State Saved (API)");
+                            }
+                        },
+                        Err(e) => {
+                            gui.show_flash_message("Save Failed");
+                            eprintln!("[API SAVE] Failed: {}", e);
+                        }
+                    }
+                }
+            }
+
+            if locked.take_load_request() {
+                let state_path = save_dir.as_ref().map(|dir| rustsdlretro_core::sram::state_path(dir, &rom_name));
+                if let Some(ref path) = state_path {
+                    match std::fs::read(path) {
+                        Ok(state_data) => {
+                            match core.load_state(&state_data) {
+                                Ok(()) => gui.show_flash_message("State Loaded (API)"),
+                                Err(e) => {
+                                    gui.show_flash_message("Load Failed");
+                                    eprintln!("[API LOAD] Failed: {}", e);
+                                }
+                            }
+                        },
+                        Err(_) => eprintln!("[API LOAD] No state file at: {}", path.display()),
+                    }
+                }
+            }
+
+            // Apply pending option changes
+            let pending_opts = locked.take_pending_options();
+            for (key, value) in pending_opts {
+                if let Some(ref mut core_opts) = rustsdlretro_core::get_core_options_raw_mut() {
+                    eprintln!("[API OPTION] {} = {}", key, value);
+                    // Set the option value
+                    core_opts.set_v2_value(&key, &value);
+                }
+            }
+
+            // Refresh FPS and resolution from the shared ResolutionState
+            locked.refresh_status_from_res();
+
+            // Check if we should skip this frame (paused or stepping)
+            let step_requested = locked.consume_frame_step();
+            let should_run = !menu_open && locked.is_running();
+            drop(locked);
+
+            if should_run {
+                if core.run().is_err() {
+                    eprintln!("Failed to run frame");
+                    break;
+                }
+                // If step was requested, pause after this frame (handled by consume_frame_step above)
+            } else if step_requested {
+                // Already ran one frame due to step request; loop continues
+                if core.run().is_err() {
+                    eprintln!("Failed to run frame");
+                    break;
+                }
+            }
+        }
+
+        #[cfg(not(feature = "api"))]
         if !menu_open && core.run().is_err() {
             eprintln!("Failed to run frame");
             break;

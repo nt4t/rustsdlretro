@@ -8,6 +8,7 @@ default = ["minifb", "config", "null-audio"]
 minifb = ["rustsdlretro-core/minifb"]
 config = ["rustsdlretro-core/config"]
 null-audio = ["rustsdlretro-core/null-audio"]
+api = ["rustsdlretro-core/api"]
 
 [dependencies]
 rustsdlretro-core = { path = "../rustsdlretro-core", default-features = false, features = ["minifb", "config"] }

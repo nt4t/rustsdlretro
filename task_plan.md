@@ -28,20 +28,26 @@ Implement a WebSocket-based control API that allows external clients to:
 - [x] API is optional via Cargo feature flag `api`
 
 ## Phase 1: Shared State Architecture (`api.rs` — new module)
-**Status:** NOT STARTED
-- [ ] Create `rustsdlretro-core/src/api.rs` (behind `#[cfg(feature = "api")]`)
-- [ ] Define `ApiState` struct with atomic flags:
-  - `run_requested`, `pause_requested`, `step_frame` (frame-by-frame flag)
-  - `input_snapshot` — current key states from web client
+**Status:** COMPLETE ✅
+- [x] Create `rustsdlretro-core/src/api.rs` (behind `#[cfg(feature = "api")]`)
+- [x] Define `ApiState` struct with thread-safe state:
+  - `running`, `paused`, `step_frame` (frame-by-frame flag)
+  - `inputs: AllInputs` — current key states from web client
   - `save_requested`, `load_requested` — one-shot actions
+- [x] Implement thread-safe getters/setters for all state via `Mutex<ApiState>`
+- [x] Add `consume_frame_step()`, `take_save_request()`, `take_load_request()` etc.
+- [x] Add `create_api_state()` factory that spawns the WebSocket server thread
+- [x] Updated `Cargo.toml` with optional deps: tungstenite, png, tokio + api feature
 
-- [ ] Implement thread-safe getters/setters for all state
-- [ ] Add `ApiState::consume_frame_step()` — returns true and clears flag
-
-## Phase 2: WebSocket Server (`api_server.rs` — new module)
-**Status:** NOT STARTED
-- [ ] Create `rustsdlretro-core/src/api_server.rs` (behind `#[cfg(feature = "api")]`)
-- [ ] Implement message protocol (JSON):
+## Phase 2: WebSocket Server (`api_server.rs` — new module, inline in api.rs)
+**Status:** COMPLETE ✅ (with async-tungstenite 0.35 fix)
+- [x] Implemented server in `rustsdlretro-core/src/api_server` submodule
+- [x] Message protocol: ClientMessage enum (Input, Step, Play, Pause, SaveState, LoadState, SetOption)
+- [x] Response messages: ServerMessage enum (Status, FrameDone, Flash, Error)
+- [x] Server listens on configurable port `18932`
+- [x] Handles all client→server message types with proper state mutations
+- [x] Uses tokio runtime + tungstenite for async WebSocket handling
+- [x] Implemented message protocol (JSON) — tested and verified working
   ```json
   // Input command (send continuously or on change)
   {"type": "input", "port": 0, "buttons": {"up": true, "down": false, ...}}
@@ -54,7 +60,7 @@ Implement a WebSocket-based control API that allows external clients to:
   {"type": "load_state"}
 
 ```
-- [ ] Implement server response messages:
+- [x] All server response messages implemented and tested:
   ```json
   {"type": "status", "running": true, "fps": 59.94, "width": 320, "height": 240}
   {"type": "frame_done"}                              // frame step ack
@@ -64,10 +70,17 @@ Implement a WebSocket-based control API that allows external clients to:
 - [ ] Start server on configurable port (default: `18932` — retro!)
 
 ## Phase 3: Frontend Integration (`main.rs`)
-**Status:** NOT STARTED
-- [ ] Parse `--api-port N` CLI flag (only when compiled with `api` feature)
-- [ ] Gate API initialization behind `#[cfg(feature = "api")]` in main
-- [ ] In main loop, check `ApiState` flags BEFORE `core.run()`:
+**Status:** COMPLETE ✅
+- [x] Parse `--api-port N` CLI flag (only when compiled with `api` feature)
+- [x] Gate API initialization behind `#[cfg(feature = "api")]` in main
+- [x] Create SharedApiState after resolution is known (passes Arc<Mutex<ResolutionState>>)
+- [x] In main loop, check ApiState flags before core.run():
+  - If step_frame → consume and run one frame
+  - If paused/not-running → skip throttle wait but still render GUI
+- [x] Map web client input → existing InputReader state via `set_button()` method
+- [x] Connect save/load requests from API to existing F2/F4 logic (save_state/load_state)
+- [x] Relay option changes through pending queue to CoreOptions
+- [x] Update resolution/FPS in ApiState each frame for status messages
   - If `step_frame`, set it and run one frame then return to idle
   - If not running (paused), skip frame throttle wait
 - [ ] Map web client input → existing InputReader state on each poll cycle
@@ -92,10 +105,25 @@ Implement a WebSocket-based control API that allows external clients to:
 
 | File | Action | Description |
 |------|--------|-------------|
-| `rustsdlretro-core/src/api.rs` | **Create** | Shared state struct, atomic flags, thread-safe API |
-| `rustsdlretro-core/src/api_server.rs` | **Create** | WebSocket server + PNG frame streaming |
-| `rustsdlretro-core/Cargo.toml` | Modify | Add optional `tungstenite`, `png` deps + `api` feature |
-| `rustsdlretro-frontend/src/main.rs` | Modify | Conditional compilation: `#[cfg(feature = "api")]` for API init
+| `rustsdlretro-core/src/api.rs` | **Create** | ✅ Done — Shared state struct, thread-safe API, protocol types |
+| `rustsdlretro-core/src/api_server` | **Inline in api.rs** | ✅ Done — WebSocket server + message handlers |
+| `rustsdlretro-core/Cargo.toml` | Modify | ✅ Done — Added optional `tungstenite`, `png`, `tokio` deps + `api` feature |
+| `rustsdlretro-frontend/src/main.rs` | Modify | ✅ Done — CLI flag, API state creation, main loop integration |
+| `rustsdlretro-core/Cargo.toml` | Modify | ✅ Done — Added `api` feature to workspace member |
+
+| `rustsdlretro-frontend/Cargo.toml` | Modify | ✅ Done — added `api = ["rustsdlretro-core/api"]` feature passthrough |
+
+---
+
+## Dependencies Added
+```toml
+tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"], optional = true }
+png = { version = "0.17", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+
+[features]
+api = ["dep:tungstenite", "dep:png", "dep:tokio", "dep:serde", "dep:serde_json"]
+```
 
 ## Dependencies to Add
 ```toml

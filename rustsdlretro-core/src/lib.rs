@@ -28,6 +28,9 @@ pub mod video_minifb;
 #[cfg(feature = "config")]
 pub mod config;
 
+#[cfg(feature = "api")]
+pub mod api;
+
 pub struct ResolutionState {
     pub width: u32,
     pub height: u32,

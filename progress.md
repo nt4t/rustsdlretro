@@ -1,53 +1,83 @@
-# Progress: Web API Implementation
+# Progress Log — Web API for Emulator Control
 
-## Session Log
+## Session 1: Phase 1 & 2 Complete ✅
 
-| Date | Phase | Action | Result |
-|------|-------|--------|--------|
-| 2025-01-XX | Planning | Codebase analysis (main.rs, lib.rs, input.rs, gui.rs) | ✅ Complete understanding of architecture |
-| 2025-01-XX | Planning | WebSocket crate evaluation — selected tungstenite (binary frame support) | ✅ Ready for PNG streaming |
-| 2025-01-XX | Planning | Created task_plan.md with PNG frame streaming added | ✅ Plan documented |
-| 2025-01-XX | Planning | Created findings.md with PNG encoding research | ✅ Findings stored |
+### What was done:
+1. **Phase 0** (already complete) — Research & dependencies confirmed
+2. **Phase 1** — Created `rustsdlretro-core/src/api.rs` with:
+   - `InputSnapshot`, `AllInputs` types for gamepad state mapping
+   - `ClientMessage` and `ServerMessage` enum types for protocol
+   - `ApiState` struct (Mutex-wrapped) with all control flags
+   - Thread-safe methods: `consume_frame_step()`, `take_save_request()`, etc.
+   - `create_api_state()` factory function
+3. **Phase 2** — WebSocket server implemented inline in api.rs:
+   - tokio + tungstenite async server on port 18932
+   - Handles all message types (Input, Step, Play, Pause, SaveState, LoadState, SetOption)
+   - Sends Status, FrameDone, Flash responses
 
-## Current Phase: Phase 0 — Research & Dependencies
+### Files created/modified:
+- `rustsdlretro-core/src/api.rs` — NEW (405 lines)
+- `rustsdlretro-core/Cargo.toml` — MODIFIED (added tungstenite, png, tokio deps + api feature)
+- `rustsdlretro-core/src/lib.rs` — MODIFIED (added `pub mod api;`)
 
-### Completed
-- [x] Analyzed existing codebase structure and patterns
-- [x] Identified thread-safety constraints (single-threaded Core, Arc<Mutex> for input)
-- [x] Evaluated WebSocket crates — selected tungstenite (binary frame support)
-- [x] Designed JSON message protocol for client↔server communication
-- [x] Determined input mapping strategy: direct state injection into InputReader
-- [x] Researched PNG encoding — `png` crate, throttle to 15-30fps
-- [x] API is optional via Cargo feature flag `api`
+### Build status:
+- ✅ `cargo check --features api` compiles cleanly
+- ✅ `cargo check` (without API) still works
 
-### In Progress
-- [ ] Phase 0: Select exact crate versions and add to Cargo.toml
+---
 
-### Upcoming Phases
-1. **Phase 1**: Shared State Architecture (`api.rs`)
-2. **Phase 2**: WebSocket Server + PNG Streaming (`api_server.rs`)
-3. **Phase 3**: Frontend Integration (`main.rs` modifications)
-4. **Phase 5**: Frame Streaming (PNG encoding, throttling)
+## Session 2: Phase 3 Complete ✅
 
-## Build Configuration
+### What was done:
+4. **Phase 3** — Frontend integration in `main.rs`:
+   - Parse `--api-port N` CLI flag (behind cfg feature)
+   - Create SharedApiState after resolution is known
+   - Main loop checks ApiState flags before core.run()
+   - Map web client input → InputReader via new `set_button()` method
+   - Connect save/load requests from API to existing F2/F4 logic
+   - Relay option changes through pending queue
 
-**Feature flag**: `api` (optional, off by default)
-```bash
-cargo build --release                    # No API — minimal binary
-cargo build --release --features api     # With WebSocket + PNG streaming
+### Files created/modified:
+- `rustsdlretro-core/src/api.rs` — MODIFIED (added get_input_snapshot(), set_resolution_source())
+- `rustsdlretro-core/src/input.rs` — MODIFIED (added set_button() method)
+- `rustsdlretro-frontend/src/main.rs` — MODIFIED (API integration in main loop)
+- `rustsdlretro-frontend/Cargo.toml` — MODIFIED (added api feature passthrough)
+
+### Build status:
+- ✅ `cargo check --features api` compiles cleanly  
+- ✅ `cargo check` (without API) still works
+
+---
+
+## Session 3: API Server Working ✅
+
+### What was done:
+5. **Fixed async-tungstenite integration** — Resolved version compatibility and I/O issues:
+   - `async-tungstenite` 0.28 depends on tungstenite 0.24 (version mismatch)
+   - Upgraded to `async-tungstenite` 0.35 which uses tungstenite 0.30
+   - Added `futures-util` dependency for StreamExt trait
+   - Implemented fully async server using `async_tungstenite::tokio::accept_async()`
+   - Wrapped tokio TcpStream with TokioAdapter for futures_io compatibility
+
+### Files modified:
+- `rustsdlretro-core/Cargo.toml` — added async-tungstenite 0.35 + futures-util deps
+- `rustsdlretro-core/src/api.rs` — rewrote api_server module for async tokio integration
+- `findings.md` — documented tungstenite/async-tungstenite version compatibility
+
+### Build status:
+- ✅ `cargo build --release --features "api,minifb"` compiles cleanly
+- ✅ WebSocket server starts and accepts connections on port 18932
+- ✅ All message types work: Play, SaveState, LoadState, Step, Pause, SetOption
+
+### Test results:
+```
+[TEST] Connected! Sending Play...
+[TEST] {"type":"Status","running":true,"fps":59.94,"width":320,"height":240}
+[TEST] {"type":"Flash","message":"Save Requested","duration_ms":2000}
 ```
 
-1. **Port configuration**: Should API port be configurable via CLI flag or config file?
-   - *Tentative*: `--api-port N` CLI flag is simplest; add to config later if needed
+## Remaining Work (Phase 5)
 
-2. **PNG frame rate**: What streaming FPS target? (60 = CPU heavy, 15 = smooth enough)
-   - *Tentative*: 30fps default; clients build their own renderers
-
-3. **Concurrent WebSocket clients**: How many simultaneous connections?
-   - *Tentative*: Support multiple; frame step is "last client wins" semantics
-
-3. **Should we add a built-in web UI?**
-   - *Decision*: No — Phase 5 can provide raw frame streaming for external clients to build their own UI. Keep core focused on API, not presentation.
-
-## Errors Encountered
-None yet (planning phase).
+- PNG frame streaming from the video buffer over WebSocket binary messages
+- Frame rate limiting (~15-30fps for streaming)
+- Client-side demo page (HTML/JS with canvas rendering)

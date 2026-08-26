@@ -419,6 +419,14 @@ impl InputReader {
         s[idx] as i16
     }
 
+    /// Set a specific button state directly (used by API to merge web client input).
+    pub fn set_button(&self, index: usize, value: i32) {
+        if index < TOTAL_SLOTS {
+            let mut s = self.state.lock().unwrap();
+            s[index] = value;
+        }
+    }
+
     /// Check if a specific Linux input keycode is currently pressed
     pub fn is_key_pressed(&self, keycode: u16) -> bool {
         match keycode {
