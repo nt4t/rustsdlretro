@@ -70,6 +70,16 @@ pub struct InputReader {
     /// Track previous key state to detect edge transitions (minifb mode)
     #[cfg(feature = "minifb")]
     prev_state: Arc<Mutex<[i32; 16]>>,
+    /// F-key tracking for minifb mode
+    #[cfg(feature = "minifb")]
+    f2_just_pressed: Arc<Mutex<bool>>,
+    #[cfg(feature = "minifb")]
+    f4_just_pressed: Arc<Mutex<bool>>,
+    /// Track whether F2/F4 was held last poll cycle (for edge detection)
+    #[cfg(feature = "minifb")]
+    f2_held: Arc<Mutex<bool>>,
+    #[cfg(feature = "minifb")]
+    f4_held: Arc<Mutex<bool>>,
     #[cfg(feature = "minifb")]
     poll_fn: Option<KeyboardPollFn>,
 }
@@ -130,6 +140,14 @@ impl InputReader {
             #[cfg(feature = "minifb")]
             prev_state: Arc::new(Mutex::new([0; 16])),
             #[cfg(feature = "minifb")]
+            f2_just_pressed: Arc::new(Mutex::new(false)),
+            #[cfg(feature = "minifb")]
+            f4_just_pressed: Arc::new(Mutex::new(false)),
+            #[cfg(feature = "minifb")]
+            f2_held: Arc::new(Mutex::new(false)),
+            #[cfg(feature = "minifb")]
+            f4_held: Arc::new(Mutex::new(false)),
+            #[cfg(feature = "minifb")]
             poll_fn: None,
         })
     }
@@ -149,6 +167,10 @@ impl InputReader {
             state,
             just_pressed,
             prev_state,
+            f2_just_pressed: Arc::new(Mutex::new(false)),
+            f4_just_pressed: Arc::new(Mutex::new(false)),
+            f2_held: Arc::new(Mutex::new(false)),
+            f4_held: Arc::new(Mutex::new(false)),
             poll_fn: None, // Will be set by frontend
         }
     }
@@ -194,6 +216,28 @@ impl InputReader {
         // Save current state for next frame's edge detection
         for i in 0..16 {
             prev[i] = s[i];
+        }
+
+        // Track F2/F4 edge transitions (not mapped to joypad buttons)
+        let f2_down = video.is_key_down(Key::F2);
+        {
+            let mut prev_held = self.f2_held.lock().unwrap();
+            if f2_down && !*prev_held {
+                // Rising edge: was not held last frame, now is
+                *self.f2_just_pressed.lock().unwrap() = true;
+                eprintln!("[INPUT] F2 just pressed (edge detected)");
+            }
+            *prev_held = f2_down;
+        }
+        let f4_down = video.is_key_down(Key::F4);
+        {
+            let mut prev_held = self.f4_held.lock().unwrap();
+            if f4_down && !*prev_held {
+                // Rising edge: was not held last frame, now is
+                *self.f4_just_pressed.lock().unwrap() = true;
+                eprintln!("[INPUT] F4 just pressed (edge detected)");
+            }
+            *prev_held = f4_down;
         }
     }
     
@@ -287,5 +331,22 @@ impl InputReader {
             return was_pressed;
         }
         false
+    }
+
+    /// Check if an F-key (F2, F4) was just pressed.
+    /// Works in minifb mode via dedicated tracking; always returns false for evdev mode.
+    /// Clears the flag after reading so it only fires once per press cycle.
+    #[cfg(feature = "minifb")]
+    pub fn was_f_key_just_pressed(&self, f_num: u8) -> bool {
+        let mut flag = match f_num {
+            2 => self.f2_just_pressed.lock().unwrap(),
+            4 => self.f4_just_pressed.lock().unwrap(),
+            _ => return false,
+        };
+        let was_pressed = *flag;
+        if was_pressed {
+            *flag = false;
+        }
+        was_pressed
     }
 }

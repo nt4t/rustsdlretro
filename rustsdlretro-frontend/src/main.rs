@@ -172,6 +172,19 @@ fn main() {
     };
     gui.set_rom_name(&rom_name);
 
+    // Set up save directory using actual libretro core name (e.g., "Beetle PSX")
+    let core_name = core.get_core_name().to_string();
+    gui.set_core_name(&core_name);
+    eprintln!("Using core name: {}", core_name);
+    let save_dir = rustsdlretro_core::sram::ensure_save_dir(Path::new(&sys_dir), &core_name).ok();
+    if let Some(ref dir) = save_dir {
+        eprintln!("Save directory: {}", dir.display());
+        // Auto-load SRAM after ROM load (silent on failure)
+        if rustsdlretro_core::sram::load_sram(core.handle(), &rom_name, dir).is_ok() {
+            eprintln!("SRAM loaded for '{}'", rom_name);
+        }
+    }
+
     let res_state = core.get_resolution_state();
 
     // Get AV info after ROM loaded (core may not have valid AV info before load)
@@ -268,6 +281,67 @@ fn main() {
                 false
             }
         };
+
+        // Check for save/load state keys (F2/F4) — works regardless of menu open
+        let handle_save_load = unsafe {
+            if let Some(input) = MAIN_INPUT.as_ref() {
+                gui.check_save_load_keys(input)
+            } else {
+                None
+            }
+        };
+        if let Some(action) = handle_save_load {
+            // Get save dir for state file path
+            let state_path = save_dir.as_ref().map(|dir| rustsdlretro_core::sram::state_path(dir, &rom_name));
+            match action {
+                rustsdlretro_core::gui::SaveLoadAction::Save => {
+                    if let (Some(ref dir), Some(path)) = (save_dir.as_ref(), state_path) {
+                        match core.save_state() {
+                            Ok(state_data) => {
+                                if std::fs::write(&path, &state_data).is_ok() {
+                                    gui.show_flash_message("State Saved");
+                                    eprintln!("[SAVELOAD] Saved {} bytes to {}", state_data.len(), path.file_name().unwrap_or_default().to_str().unwrap_or("?"));
+                                } else {
+                                    gui.show_flash_message("Save Failed");
+                                    eprintln!("[SAVELOAD] Failed to write: {}", path.display());
+                                }
+                            },
+                            Err(e) => {
+                                gui.show_flash_message("Save Failed");
+                                eprintln!("[SAVELOAD] Save failed: {}", e);
+                            }
+                        }
+                    } else {
+                        gui.show_flash_message("No Save Dir");
+                        eprintln!("[SAVELOAD] No save dir or path available");
+                    }
+                },
+                rustsdlretro_core::gui::SaveLoadAction::Load => {
+                    if let Some(ref path) = state_path {
+                        match std::fs::read(path) {
+                            Ok(state_data) => {
+                                match core.load_state(&state_data) {
+                                    Ok(()) => {
+                                        gui.show_flash_message("State Loaded");
+                                        eprintln!("[SAVELOAD] Loaded {} bytes from {}", state_data.len(), path.file_name().unwrap_or_default().to_str().unwrap_or("?"));
+                                    },
+                                    Err(e) => {
+                                        gui.show_flash_message("Load Failed");
+                                        eprintln!("[SAVELOAD] Load failed: {}", e);
+                                    }
+                                }
+                            },
+                            Err(_) => {
+                                // No state file exists — silently ignore, no flash message
+                                eprintln!("No save state found at: {}", path.display());
+                            }
+                        }
+                    } else {
+                        gui.show_flash_message("No Save Dir");
+                    }
+                },
+            }
+        }
 
         if !menu_open && core.run().is_err() {
             eprintln!("Failed to run frame");
@@ -372,6 +446,13 @@ fn main() {
             let _ = Box::from_raw(MAIN_INPUT);
         }
     }
+    // Auto-save SRAM before unloading (silent on failure)
+    if let Some(ref dir) = save_dir {
+        if rustsdlretro_core::sram::save_sram(core.handle(), &rom_name, dir).is_ok() {
+            eprintln!("SRAM saved for '{}'", rom_name);
+        }
+    }
+
     core.unload();
     eprintln!("Done. ({} total frames)", frame_count);
 }

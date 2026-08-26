@@ -16,6 +16,15 @@ pub enum GuiState {
     Settings,
 }
 
+/// Action triggered by save/load state keys
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveLoadAction {
+    /// F2 pressed — save current state
+    Save,
+    /// F4 pressed — load last saved state
+    Load,
+}
+
 /// Type of menu item
 #[derive(Debug, Clone)]
 pub enum MenuItem {
@@ -228,6 +237,11 @@ pub struct Gui {
     selected_values: std::collections::HashMap<String, String>,
     /// Whether framebuffer needs to be cleared
     clear_needed: bool,
+    /// Flash message display (e.g., "State Saved")
+    flash_message: Option<(String, u64)>, // (text, frame_when_shown)
+    /// Track just-pressed F2/F4 for save/load state
+    f2_pressed: bool,
+    f4_pressed: bool,
 }
 
 impl Gui {
@@ -246,6 +260,9 @@ impl Gui {
             frame_count: 0,
             selected_values: std::collections::HashMap::new(),
             clear_needed: false,
+            flash_message: None,
+            f2_pressed: false,
+            f4_pressed: false,
         }
     }
 
@@ -254,9 +271,55 @@ impl Gui {
         self.core_name = name.to_string();
     }
 
+    /// Get the core name (for save directory lookup)
+    pub fn get_core_name(&self) -> &str {
+        &self.core_name
+    }
+
     /// Set the ROM name
     pub fn set_rom_name(&mut self, name: &str) {
         self.rom_name = name.to_string();
+    }
+
+    /// Check for save/load state key presses (F2/F4).
+    /// Returns SaveLoadAction if triggered, None otherwise.
+    /// Edge-triggered: fires only on first frame after key press.
+    pub fn check_save_load_keys(&mut self, input: &InputReader) -> Option<SaveLoadAction> {
+        #[cfg(feature = "minifb")]
+        {
+            if input.was_f_key_just_pressed(2) {
+                return Some(SaveLoadAction::Save);
+            }
+            if input.was_f_key_just_pressed(4) {
+                return Some(SaveLoadAction::Load);
+            }
+        }
+        #[cfg(not(feature = "minifb"))]
+        {
+            // F2 = save (evdev KEY_F2 = 60)
+            if input.was_key_just_pressed(60) {
+                return Some(SaveLoadAction::Save);
+            }
+            // F4 = load (evdev KEY_F4 = 62)
+            if input.was_key_just_pressed(62) {
+                return Some(SaveLoadAction::Load);
+            }
+        }
+        None
+    }
+
+    /// Show a brief flash message centered at top of screen.
+    /// Visible for ~120 frames (2 seconds at 60fps).
+    pub fn show_flash_message(&mut self, msg: &str) {
+        self.flash_message = Some((msg.to_string(), self.frame_count));
+    }
+
+    /// Check if a flash message is still visible.
+    fn flash_is_visible(&self) -> bool {
+        match &self.flash_message {
+            Some((_, shown_at)) => self.frame_count.wrapping_sub(*shown_at) < 120,
+            None => false,
+        }
     }
 
     /// Toggle menu open/close
@@ -450,6 +513,42 @@ impl Gui {
             self.clear_needed = false;
         }
 
+        let w = fb_width as i32;
+        let h = fb_height as i32;
+        // Menu dimensions for 320x240, scaled for larger resolutions
+        let menu_width = (w - 20).max(200);
+        let menu_height = (h - 60).max(120);
+        let bg_x1 = (w - menu_width) / 2;
+        let bg_y1 = (h - menu_height) / 2 - 20;
+
+        // Draw flash message if visible (centered at top)
+        if self.flash_is_visible() {
+            let msg = match &self.flash_message {
+                Some((text, _)) => text.as_str(),
+                None => "",
+            };
+            if !msg.is_empty() {
+                // Fade effect: alpha based on remaining time
+                let elapsed = self.frame_count.wrapping_sub(
+                    self.flash_message.as_ref().map(|(_, s)| *s).unwrap_or(0)
+                );
+                let fade_start: u64 = 100; // Start fading at frame 100 of display
+                let alpha: u8 = if elapsed > fade_start {
+                    ((fade_start as i32 - (elapsed as i32 - fade_start as i32)) * 255 / fade_start as i32).max(0) as u8
+                } else {
+                    255
+                };
+                // Blend yellow text with background for fade effect
+                let color = ((alpha as u32) * 0xFFFF00 >> 8) | (((255 - alpha) as u32) * 0x333333 >> 8);
+                
+                let msg_width = msg.len() as i32 * 6;
+                let x = (w - msg_width) / 2;
+                let y = bg_y1 + 45; // Below header
+                video.draw_rect_overlay(x - 8, y - 10, x + msg_width + 8, y + 14, 0x000000);
+                video.draw_text_overlay(x, y, msg.as_bytes(), color | 0xFF000000);
+            }
+        }
+
         if self.state == GuiState::Playing {
             return;
         }
@@ -457,12 +556,6 @@ impl Gui {
         let menu = match &self.menu {
             Some(m) => m,
             None => {
-                let w = fb_width as i32;
-                let h = fb_height as i32;
-                let menu_width = (w - 20).max(200);
-                let menu_height = (h - 60).max(120);
-                let bg_x1 = (w - menu_width) / 2;
-                let bg_y1 = (h - menu_height) / 2 - 20;
                 let bg_x2 = bg_x1 + menu_width;
                 let bg_y2 = bg_y1 + menu_height;
                 video.draw_rect_overlay(bg_x1, bg_y1, bg_x2, bg_y2, 0x000000);
@@ -473,14 +566,6 @@ impl Gui {
             }
         };
 
-        let w = fb_width as i32;
-        let h = fb_height as i32;
-
-        // Menu dimensions for 320x240, scaled for larger resolutions
-        let menu_width = (w - 20).max(200);
-        let menu_height = (h - 60).max(120);
-        let bg_x1 = (w - menu_width) / 2;
-        let bg_y1 = (h - menu_height) / 2 - 20;
         let bg_x2 = bg_x1 + menu_width;
         let bg_y2 = bg_y1 + menu_height;
 

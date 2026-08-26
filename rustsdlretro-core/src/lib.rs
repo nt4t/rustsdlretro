@@ -19,6 +19,7 @@ pub mod audio_null;
 pub mod font;
 pub mod core_options;
 pub mod gui;
+pub mod sram;
 pub mod zip_rom;
 
 #[cfg(feature = "minifb")]
@@ -46,6 +47,7 @@ impl Default for ResolutionState {
 pub struct Core {
     handle: *mut c_void,
     need_fullpath: bool,
+    core_name: String,
     resolution: Arc<Mutex<ResolutionState>>,
 }
 
@@ -68,6 +70,9 @@ pub type RetroUnloadGameFn = unsafe extern "C" fn();
 pub type RetroRunFn = unsafe extern "C" fn();
 pub type RetroGetSystemInfoFn = unsafe extern "C" fn(info: *mut retro_system_info);
 pub type RetroGetSystemAvInfoFn = unsafe extern "C" fn(av_info: *mut retro_system_av_info);
+pub type RetroSerializeSizeFn = unsafe extern "C" fn() -> usize;
+pub type RetroSerializeFn = unsafe extern "C" fn(data: *mut c_void, len: usize) -> bool;
+pub type RetroUnserializeFn = unsafe extern "C" fn(data: *const c_void, len: usize) -> bool;
 
 #[derive(Debug)]
 pub struct CoreError {
@@ -506,6 +511,7 @@ impl Core {
         Ok(Core {
             handle,
             need_fullpath: false,
+            core_name: String::new(),
             resolution: Arc::new(Mutex::new(ResolutionState::default())),
         })
     }
@@ -518,6 +524,11 @@ impl Core {
         unsafe { CORE_OPTIONS.as_ref() }
     }
 
+    /// Get the libretro core name (e.g., "Beetle PSX", "snes9x2010")
+    pub fn get_core_name(&self) -> &str {
+        &self.core_name
+    }
+
     pub fn init(&mut self) -> Result<(), CoreError> {
         let set_env: RetroSetEnvironmentFn = unsafe { get_symbol!(self.handle, "retro_set_environment", RetroSetEnvironmentFn) };
         unsafe { set_env(Some(log_environment_cb)) };
@@ -527,7 +538,8 @@ impl Core {
         let mut info = retro_system_info::default();
         unsafe { get_info(&mut info) };
         self.need_fullpath = info.need_fullpath;
-        eprintln!("Core: {} need_fullpath={}", unsafe { CStr::from_ptr(info.library_name).to_string_lossy() }, self.need_fullpath);
+        self.core_name = unsafe { CStr::from_ptr(info.library_name).to_string_lossy().into_owned() };
+        eprintln!("Core: {} need_fullpath={}", self.core_name, self.need_fullpath);
 
         let init: RetroInitFn = unsafe { get_symbol!(self.handle, "retro_init", RetroInitFn) };
         unsafe { init() };
@@ -694,6 +706,52 @@ impl Core {
             unsafe { dlclose(self.handle) };
             self.handle = ptr::null_mut();
         }
+    }
+
+    /// Serialize the core's internal state into a buffer.
+    /// Returns the serialized data on success, or an error if serialization is unsupported/failed.
+    pub fn save_state(&self) -> Result<Vec<u8>, CoreError> {
+        let serialize_size: RetroSerializeSizeFn = unsafe {
+            get_symbol!(self.handle, "retro_serialize_size", RetroSerializeSizeFn)
+        };
+        let serialize: RetroSerializeFn = unsafe {
+            get_symbol!(self.handle, "retro_serialize", RetroSerializeFn)
+        };
+
+        let size = unsafe { serialize_size() };
+        if size == 0 {
+            return Err(CoreError {
+                message: "Core reports zero serialization size (not supported?)".into(),
+            });
+        }
+
+        eprintln!("Saving state: {} bytes", size);
+        let mut buffer = vec![0u8; size];
+        let success = unsafe { serialize(buffer.as_mut_ptr() as *mut c_void, size) };
+
+        if !success {
+            return Err(CoreError {
+                message: format!("retro_serialize failed (size={})", size),
+            });
+        }
+
+        Ok(buffer)
+    }
+
+    /// Load a serialized state from a buffer.
+    pub fn load_state(&mut self, data: &[u8]) -> Result<(), CoreError> {
+        let unserialize: RetroUnserializeFn = unsafe {
+            get_symbol!(self.handle, "retro_unserialize", RetroUnserializeFn)
+        };
+        let success = unsafe { unserialize(data.as_ptr() as *const c_void, data.len()) };
+
+        if !success {
+            return Err(CoreError {
+                message: "retro_unserialize failed (state may be incompatible)".into(),
+            });
+        }
+
+        Ok(())
     }
 }
 

@@ -1,98 +1,96 @@
-# Task Plan: ZIP ROM File Support
+# Task Plan: Save State + SRAM Persistence
 
 ## Goal
-Enable rustsdlretro to load `.zip` archives containing game ROM files (e.g., `game.zip` with `game.sfc`, `mario.nes`, etc.) — a very common format for SNES, NES, GBA games.
+Implement full save state support (F2/F4 keyboard shortcuts) and automatic SRAM persistence for rustsdlretro.
 
-## Current State
-- `Core::load_game()` in `rustsdlretro-core/src/lib.rs` reads the ROM file directly via `std::fs::read(path)` and passes it as an in-memory buffer (`data`, `size`)
-- Cores that set `need_fullpath=true` get a path string, but currently only works for real files on disk
-- No ZIP support exists anywhere in the codebase
+## Design Reference
+Full design doc: `doc/save-state-design.md`
 
-## Phases
+## Trigger Mechanism
+| Key | Action | Context |
+|-----|--------|---------|
+| F2  | Save current state | Anytime (gameplay or menu) |
+| F4  | Load last saved state | Anytime (gameplay or menu) |
 
-### Phase 1: Design & Research (findings.md)
-**Status:** COMPLETE
+## File Layout
+```
+~/.config/rustsdlretro/saves/{core_name}/{game_name}.{state|sav|rtc}
+```
 
-Research and document approach decisions.
+---
 
-#### Key Questions to Answer
-1. How do libretro cores handle `need_fullpath` with virtual paths?
-2. Which Rust ZIP library is best (zip crate vs miniz_oxide)?
-3. Do we need to support nested ZIPs or just single-level?
-4. Should we extract to a temp file or keep in memory?
+### Phase 1: FFI Bindings + Core Methods (`lib.rs`)
+**Status:** COMPLETE ✅
 
-#### Approach Options Considered
+Add libretro serialization FFI bindings and `Core` methods.
 
-**Option A: Extract to temp file + pass path**
-- Pros: Works for `need_fullpath=true` cores, simple
-- Cons: File I/O overhead, cleanup complexity, security concerns with temp files
+- [x] Add type aliases for `RetroSerializeSizeFn`, `RetroSerializeFn`, `RetroUnserializeFn`
+- [x] Add helper methods in `Core`:
+  - `save_state(&self) -> Result<Vec<u8>, CoreError>` — serialize to buffer
+  - `load_state(&mut self, data: &[u8]) -> Result<(), CoreError>` — deserialize from buffer
+- [x] Store core name from `retro_get_system_info()` during init
 
-**Option B: In-memory extraction + virtual path (current approach)**
-- Pros: No disk I/O, clean abstraction
-- Cons: Won't work for `need_fullpath=true` cores without special handling
+### Phase 2: SRAM Module (`sram.rs` — new file)
+**Status:** COMPLETE ✅
 
-**Option C: Hybrid — detect need_fullpath, choose strategy**
-- Extract to temp file if core needs fullpath, otherwise keep in memory
-- Most compatible approach
+Create dedicated module for SRAM/RTC persistence.
 
-#### Recommended Approach: Option C (Hybrid)
-1. Detect if the ROM path ends with `.zip`
-2. If `need_fullpath=false`: extract ROM data from ZIP into a `Vec<u8>`, pass as buffer (same as current behavior)
-3. If `need_fullpath=true`: extract to a temp file, pass the temp file path
-4. Use RAII guard to clean up temp files
+- [x] Create `rustsdlretro-core/src/sram.rs`
+- [x] Add FFI types for `retro_get_memory_data`, `retro_get_memory_size` (manual dlsym)
+- [x] Implement standalone functions:
+  - `ensure_save_dir(system_dir, core_name) -> PathBuf`
+  - `state_path(save_dir, game_name) -> PathBuf`
+  - `sram_path()`, `rtc_path()`
+  - `save_sram(handle, game_name, save_dir)` — SRAM → disk
+  - `load_sram(handle, game_name, save_dir)` — disk → SRAM
+- [x] Handle RETRO_MEMORY_SAVE_RAM and RETRO_MEMORY_RTC
 
-### Phase 2: Add Dependency & Create Module
-**Status:** COMPLETE
+### Phase 3: Keyboard Detection + Flash Message (`gui.rs`)
+**Status:** COMPLETE ✅
 
-- [x] Added `zip` crate dependency (with `deflate` feature) to `rustsdlretro-core/Cargo.toml`
-- [x] Created `rustsdlretro-core/src/zip_rom.rs` module
-- [x] Implemented ZIP scanning and ROM selection logic
-- [x] Implemented `extract_zip_to_memory()` for in-memory cores
-- [x] Implemented `extract_zip_to_temp()` with RAII cleanup for fullpath cores
+Add F2/F4 key detection to existing GUI system.
 
-### Phase 3: Integrate into Core
-**Status:** COMPLETE
+- [x] Add `SaveLoadAction` enum (Save, Load)
+- [x] Add `check_save_load_keys(&mut self, input: &InputReader) -> Option<SaveLoadAction>`
+  - minifb mode: uses `was_f_key_just_pressed(2/4)` with dedicated tracking
+  - fbdev mode: uses `was_key_just_pressed(60/62)` evdev keycodes
+- [x] Track just-pressed state for edge-triggered behavior
+- [x] Add `flash_message: Option<(String, u64)>` field to Gui struct (with timestamp)
+- [x] Add `show_flash_message(&mut self, msg: &str)` method
+- [x] Render flash message in `Gui::render()` — centered top, ~2 seconds with fade
 
-- [x] Modified `Core::load_game()` to detect and handle `.zip` files
-- [x] Added `load_game_from_zip()` helper method with hybrid strategy
-- [x] Temp file cleanup via RAII `TempFileGuard` (Drop trait)
-- [x] Synthetic path used for in-memory mode (`zip://archive.zip/rom_file`)
+### Phase 4: Frontend Integration (`main.rs`)
+**Status:** COMPLETE ✅
 
-### Phase 4: Frontend Integration & UX
-**Status:** COMPLETE
+Wire everything together in the main loop.
 
-- [x] Updated frontend main.rs to use `zip_rom::get_zip_rom_name()` for display names
-- [x] Updated README.md: moved "ZIP ROM loading" from Pending → Completed
-- [x] ZIP usage documented with example command
+- [x] Create save directory at startup using actual core name from `retro_get_system_info()`
+- [ ] Set core name on GUI for menu rendering
+- [x] After `core.load_game()`: auto-load SRAM (silent on failure)
+- [x] In main loop: check save/load keys, act on results with flash messages
+- [x] Before program exit: auto-save SRAM (silent on failure)
 
 ### Phase 5: Testing
-**Status:** PENDING
+**Status:** IN PROGRESS
 
-- [ ] Test with SNES zip files (need_fullpath varies by core)
-- [ ] Test with NES zip files
-- [ ] Test with GBA zip files
-- [ ] Verify temp file cleanup on normal exit and crash
-- [ ] Test with corrupted ZIP files (graceful error handling)
+- [x] F2/F4 edge detection works correctly (fires once per press-release cycle)
+- [x] Save path uses correct core name from libretro info
+- [ ] Test F2 save + game reset + F4 load (verify exact state match) — pending user testing
+- [ ] Test auto-SRAM persistence across program restarts — pending user testing
+- [ ] Test with snes9x2010 core (SRAM + RTC support)
+- [ ] Test with FCEUmm core (NES SRAM)
+- [ ] Test with mGBA core (GBA SRAM/Flash)
+
+---
 
 ## Files to Create/Modify
 
 | File | Action | Description |
 |------|--------|-------------|
-| `rustsdlretro-core/Cargo.toml` | Modify | Add `zip` dependency |
-| `rustsdlretro-core/src/zip_rom.rs` | **Create** | ZIP parsing and extraction module |
-| `rustsdlretro-core/src/lib.rs` | Modify | Integrate ZIP handling into `load_game()` |
-| `rustsdlretro-frontend/src/main.rs` | Modify | Update ROM name display for ZIP paths |
-| `README.md` | Modify | Document ZIP support in features list |
+| `rustsdlretro-core/src/lib.rs` | Modify | FFI bindings + save_state/load_state methods |
+| `rustsdlretro-core/src/sram.rs` | **Create** | SRAM manager module |
+| `rustsdlretro-core/src/gui.rs` | Modify | Save/load key detection + flash message |
+| `rustsdlretro-frontend/src/main.rs` | Modify | Main loop integration, auto-save/load SRAM |
 
-## Decisions Log
-
-| Decision | Value | Reason |
-|----------|-------|--------|
-| ZIP library | `zip` crate v2.x with `deflate` feature | Most mature, actively maintained |
-| Extraction strategy | Hybrid (temp file for need_fullpath, buffer otherwise) | Maximum compatibility with libretro cores |
-| Temp file location | OS temp directory via `std::env::temp_dir()` | Standard practice, auto-cleaned by OS eventually |
-
-## Errors Encountered
-| Error | Attempt | Resolution |
-|-------|---------|------------|
-| — | — | — |
+## Dependencies
+No new crates needed. All std::fs and existing libc FFI.
