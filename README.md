@@ -79,6 +79,16 @@ cargo build --release --features minifb,config
 
 **Default build**: `cargo build --release` produces a framebuffer-only binary.
 
+### Common Build Combinations
+
+| Use Case | Command |
+|----------|---------|
+| **Desktop (X11 window only)** | `cargo build --release --features minifb` |
+| **Desktop with config file** | `cargo build --release --features "minifb,config"` |
+| **Full desktop + null audio fallback** | `cargo build --release --features "minifb,config,null-audio"` |
+| **Embedded (Raspberry Pi)** | `cargo build --release` |
+| **Cross-compile for RPi** | `cargo build --release --target armv7-unknown-linux-gnueabihf`
+
 ### Cross-compile for Raspberry Pi
 
 ```bash
