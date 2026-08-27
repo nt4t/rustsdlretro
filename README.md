@@ -106,21 +106,6 @@ cargo build --release --target armv7-unknown-linux-gnueabihf
 ./target/release/rustsdlretro <core.so> <game.rom>
 ```
 
-### Launcher Scripts
-
-Quick launch scripts are provided for common consoles:
-
-```bash
-# NES
-./start_nes.sh
-
-# SNES
-./start_snes.sh
-
-# PlayStation
-./start_psx.sh
-```
-
 ### WebSocket API (requires `api` feature)
 
 Built-in WebSocket server on port **18932** for remote control:
