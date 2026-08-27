@@ -12,7 +12,7 @@ null-audio = []
 tokio = ["dep:tokio"]
 tungstenite = ["dep:tungstenite"]
 png = ["dep:png"]
-api = ["tungstenite", "tokio", "async-tungstenite", "futures-util", "dep:png", "dep:serde", "dep:serde_json", "dep:crossbeam-channel"]
+api = ["tungstenite", "tokio", "async-tungstenite", "futures-util", "png", "dep:serde", "dep:serde_json", "dep:crossbeam-channel"]
 
 [dependencies]
 libc = "0.2"

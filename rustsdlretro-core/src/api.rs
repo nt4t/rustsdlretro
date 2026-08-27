@@ -343,7 +343,7 @@ pub fn create_api_state(resolution: Arc<Mutex<ResolutionState>>) -> SharedApiSta
     // Create frame streaming channel (bounded to prevent memory issues)
     #[cfg(all(feature = "tokio", feature = "tungstenite"))]
     {
-        let (frame_tx, frame_rx) = crossbeam_channel::bounded::<CapturedFrame>(4);
+        let (frame_tx, frame_rx) = crossbeam_channel::bounded::<CapturedFrame>(500);
         inner.frame_tx = Some(frame_tx);
         // Store receiver for server to read from
         *FRAME_RX.lock().unwrap() = Some(frame_rx);
@@ -397,7 +397,6 @@ pub static FRAME_RX: std::sync::Mutex<Option<crossbeam_channel::Receiver<Capture
 pub fn init_frame_streaming(api_state: &SharedApiState) {
     if let Some(tx) = api_state.lock().unwrap().get_frame_tx() {
         *FRAME_TX.lock().unwrap() = Some(tx);
-        // Also store the receiver (which is stored in ApiState.frame_rx internally)
         eprintln!("[API] Frame streaming channel initialized");
     }
 }
@@ -405,9 +404,19 @@ pub fn init_frame_streaming(api_state: &SharedApiState) {
 /// Push a captured frame into the streaming channel. Called from video backends.
 #[cfg(all(feature = "tokio", feature = "tungstenite"))]
 pub fn push_captured_frame(frame: CapturedFrame) {
+    eprintln!("[API] push_captured_frame called, width={} height={}", frame.width, frame.height);
     if let Some(ref tx) = *FRAME_TX.lock().unwrap() {
-        // Non-blocking send — drop frames if channel is full (prevents blocking emulation)
-        let _ = tx.try_send(frame);
+        match tx.try_send(frame) {
+            Ok(()) => {},
+            Err(crossbeam_channel::TrySendError::Full(_)) => {
+                eprintln!("[API][CAP] Frame dropped: channel full");
+            }
+            Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                eprintln!("[API][CAP] Channel DISCONNECTED!");
+            }
+        }
+    } else {
+        eprintln!("[API][CAP] push_captured_frame called but FRAME_TX not initialized!");
     }
 }
 
@@ -419,9 +428,22 @@ pub mod api_server {
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
 
-    /// Shared list of per-client frame channels (module-level static).
-    #[cfg(feature = "png")]
-    static CLIENTS: std::sync::Mutex<Vec<tokio::sync::mpsc::UnboundedSender<CapturedFrame>>> 
+    /// Capture mode for per-client PNG streaming.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum CaptureMode {
+        None,
+        Continuous,
+        SingleStep,
+    }
+
+    struct ClientCapture {
+        tx: tokio::sync::mpsc::UnboundedSender<CapturedFrame>,
+        id: usize,
+        mode: CaptureMode,
+    }
+
+    /// Per-client capture state tracking.
+    static CLIENT_CAPTURES: std::sync::Mutex<Vec<ClientCapture>> 
         = std::sync::Mutex::new(Vec::new());
 
     /// Run the WebSocket server on the given address.
@@ -438,8 +460,9 @@ pub mod api_server {
         #[cfg(feature = "png")]
         {
             use super::FRAME_RX;
-            if let Some(rx) = *FRAME_RX.lock().unwrap() {
-                tokio::spawn(frame_distributor_task(rx));
+            if let Some(ref rx) = *FRAME_RX.lock().unwrap() {
+                let rx_clone = (*rx).clone();
+                tokio::spawn(frame_distributor_task(rx_clone));
             }
         }
 
@@ -459,19 +482,26 @@ pub mod api_server {
         }
     }
 
-    /// Frame distributor task: reads from global channel and broadcasts to clients.
+    /// Frame distributor task: reads from global channel and broadcasts to clients
+    /// that have capture enabled.
     #[cfg(feature = "png")]
     async fn frame_distributor_task(rx: crossbeam_channel::Receiver<CapturedFrame>) {
         loop {
-            // Read next frame (blocking)
             if let Ok(frame) = rx.recv() {
-                // Broadcast to all connected clients
-                let mut clients = CLIENTS.lock().unwrap();
-                for client_tx in clients.iter_mut() {
-                    let _ = client_tx.send_unbounded(frame.clone());
+                eprintln!("[API][CAP] Frame received in distributor, width={}", frame.width);
+                let mut captures = CLIENT_CAPTURES.lock().unwrap();
+                for cap in captures.iter_mut() {
+                    match cap.mode {
+                        CaptureMode::None => {},
+                        CaptureMode::Continuous | CaptureMode::SingleStep => {
+                            if let Err(e) = cap.tx.send(frame.clone()) {
+                                eprintln!("[API][CAP] Failed to send frame to client: {}", e);
+                            }
+                        }
+                    }
                 }
-                // Prune disconnected clients (channels that are closed)
-                clients.retain(|tx| !tx.is_closed());
+            } else {
+                break;
             }
         }
     }
@@ -489,54 +519,54 @@ pub mod api_server {
 
         #[cfg(feature = "png")]
         {
-            use super::FRAME_RX;
-            
-            // Subscribe this client to frame distribution
-            if let Some(ref _rx) = *FRAME_RX.lock().unwrap() {
+            if super::FRAME_RX.lock().unwrap().is_some() {
                 // Per-client channel for frame delivery
                 let (client_tx, mut client_rx) = tokio::sync::mpsc::unbounded_channel::<CapturedFrame>();
                 
-                // Register client in global list
+                // Register client with capture mode tracking
+                let client_id: usize;
                 {
-                    let mut clients = CLIENTS.lock().unwrap();
-                    clients.push(client_tx);
+                    let mut captures = CLIENT_CAPTURES.lock().unwrap();
+                    client_id = captures.len();
+                    captures.push(ClientCapture { tx: client_tx.clone(), id: client_id, mode: CaptureMode::None });
+                    eprintln!("[API][CLIENT] Client {} registered, total clients={}", client_id, captures.len());
                 }
 
-                // Frame sender task (runs alongside message handling)
-                let frame_sender = tokio::spawn(async move {
-                    use std::time::Duration;
-                    
-                    // Rate limit: ~30fps max for PNG streaming
-                    let mut last_send = std::time::Instant::now();
-                    let min_frame_interval = Duration::from_millis(33); // ~30fps
-
-                    loop {
+                // Single message loop that handles both WS messages and frame capture.
+                let mut waiting_for_frame = false;
+                loop {
+                    if waiting_for_frame {
                         match client_rx.recv().await {
                             Some(frame) => {
-                                // Rate limit: skip if too soon since last send
-                                if last_send.elapsed() < min_frame_interval {
-                                    continue; // Drop frame to maintain target FPS
-                                }
-                                
+                                eprintln!("[API][CLIENT] Client received frame, encoding PNG...");
                                 if let Err(e) = send_png_frame(&mut ws, &frame).await {
-                                    eprintln!("[API] Frame send error: {}", e);
+                                    eprintln!("[API][CLIENT] Frame SEND ERROR: {}", e);
                                     break;
                                 }
-                                last_send = std::time::Instant::now();
+                                eprintln!("[API][CLIENT] PNG SENT, resetting capture mode");
+                                // Reset capture mode after sending
+                                {
+                                    let mut captures = CLIENT_CAPTURES.lock().unwrap();
+                                    for cap in captures.iter_mut() {
+                                        if cap.id == client_id { // This client's turn done
+                                            cap.mode = CaptureMode::None;
+                                        }
+                                    }
+                                }
+                                waiting_for_frame = false;
                             }
-                            None => break, // Channel closed
+                            None => break,
                         }
-                    }
-                });
-
-                // Main message handling loop (runs in parallel with frame sending)
-                let msg_loop = async {
-                    loop {
+                    } else {
+                        // Check for pending frames first (non-blocking drain)
+                        while client_rx.try_recv().is_ok() {}
+                        // Then wait for WS message
                         match ws.next().await {
                             Some(Ok(msg)) => {
                                 if msg.is_text() {
-                                    if let Err(e) = handle_message(&msg.to_string(), &state, &mut ws).await {
-                                        eprintln!("[API] Message error: {}", e);
+                                    let want_capture = handle_message(&msg.to_string(), &state, &mut ws).await.unwrap_or(false);
+                                    if want_capture {
+                                        waiting_for_frame = true;
                                     }
                                 } else if msg.is_close() || msg.is_ping() {
                                     break;
@@ -552,12 +582,6 @@ pub mod api_server {
                             }
                         }
                     }
-                };
-
-                // Run both tasks - cancel frame sender when client disconnects
-                tokio::select! {
-                    _ = msg_loop => {},
-                    _ = frame_sender => {},
                 }
             } else {
                 // No frame channel available, just handle messages
@@ -565,9 +589,7 @@ pub mod api_server {
                     match ws.next().await {
                         Some(Ok(msg)) => {
                             if msg.is_text() {
-                                if let Err(e) = handle_message(&msg.to_string(), &state, &mut ws).await {
-                                    eprintln!("[API] Message error: {}", e);
-                                }
+                                let _ = handle_message(&msg.to_string(), &state, &mut ws).await;
                             } else if msg.is_close() || msg.is_ping() {
                                 break;
                             }
@@ -591,9 +613,7 @@ pub mod api_server {
                 match ws.next().await {
                     Some(Ok(msg)) => {
                         if msg.is_text() {
-                            if let Err(e) = handle_message(&msg.to_string(), &state, &mut ws).await {
-                                eprintln!("[API] Message error: {}", e);
-                            }
+                            let _ = handle_message(&msg.to_string(), &state, &mut ws).await;
                         } else if msg.is_close() || msg.is_ping() {
                             break;
                         }
@@ -622,29 +642,33 @@ pub mod api_server {
         use tungstenite::Message;
 
         // Encode RGBA → PNG using the png crate
-        let mut encoder = png::Encoder::new(Vec::new(), frame.width as u32, frame.height as u32);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().unwrap();
-        writer.write_image_data(&frame.pixels).unwrap();
-        let png_data = writer.finish().unwrap();
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut buf, frame.width as u32, frame.height as u32);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&frame.pixels).unwrap();
+            writer.finish().unwrap();
+        }
 
         // Build binary message: [width u16 BE][height u16 BE][PNG bytes]
         let header = [(frame.width >> 8) as u8, (frame.width & 0xFF) as u8,
                        (frame.height >> 8) as u8, (frame.height & 0xFF) as u8];
-        let mut binary = Vec::with_capacity(4 + png_data.len());
+        let mut binary = Vec::with_capacity(4 + buf.len());
         binary.extend_from_slice(&header);
-        binary.extend_from_slice(&png_data);
+        binary.extend_from_slice(&buf);
 
-        ws.send(Message::Binary(binary)).await?;
+        ws.send(Message::binary(binary)).await?;
         Ok(())
     }
 
+    /// Handle a client message. Returns true if caller should wait for frame capture.
     async fn handle_message(
         text: &str,
         state: &Arc<Mutex<ApiState>>,
         ws: &mut async_tungstenite::WebSocketStream<async_tungstenite::tokio::TokioAdapter<tokio::net::TcpStream>>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         use tungstenite::Message;
 
         let msg = serde_json::from_str::<ClientMessage>(text)?;
@@ -654,39 +678,61 @@ pub mod api_server {
                 state.lock().unwrap().inputs.get_mut(port).clone_from(&buttons);
             }
             ClientMessage::Step => {
+                eprintln!("[API] Step command received");
                 state.lock().unwrap().request_frame_step();
+                
+                // Set all clients' capture mode to SingleStep
+                #[cfg(feature = "png")]
+                {
+                    let mut captures = CLIENT_CAPTURES.lock().unwrap();
+                    for cap in captures.iter_mut() {
+                        if cap.mode == CaptureMode::None {
+                            cap.mode = CaptureMode::SingleStep;
+                            eprintln!("[API] Client capture mode set to SingleStep");
+                        } else {
+                            eprintln!("[API] Client already capturing (mode={:?})", cap.mode);
+                        }
+                    }
+                }
+                
                 let resp = ServerMessage::FrameDone;
                 ws.send(Message::text(serde_json::to_string(&resp)?)).await?;
+                return Ok(true); // Signal caller to wait for frame capture
             }
             ClientMessage::Play => {
+                eprintln!("[API] Play command received");
                 { let mut inner = state.lock().unwrap(); inner.start_playback(); }
                 let (running, fps, width, height) = state.lock().unwrap().get_status();
                 let resp = ServerMessage::Status { running, fps, width, height };
                 ws.send(Message::text(serde_json::to_string(&resp)?)).await?;
             }
             ClientMessage::Pause => {
+                eprintln!("[API] Pause command received");
                 { let mut inner = state.lock().unwrap(); inner.pause_emulation(); }
                 let (running, fps, width, height) = state.lock().unwrap().get_status();
                 let resp = ServerMessage::Status { running, fps, width, height };
                 ws.send(Message::text(serde_json::to_string(&resp)?)).await?;
             }
             ClientMessage::SaveState => {
+                eprintln!("[API] SaveState command received");
                 state.lock().unwrap().request_save_state();
                 let resp = ServerMessage::Flash { message: "Save Requested".into(), duration_ms: 2000 };
                 ws.send(Message::text(serde_json::to_string(&resp)?)).await?;
             }
             ClientMessage::LoadState => {
+                eprintln!("[API] LoadState command received");
                 state.lock().unwrap().request_load_state();
                 let resp = ServerMessage::Flash { message: "Load Requested".into(), duration_ms: 2000 };
                 ws.send(Message::text(serde_json::to_string(&resp)?)).await?;
             }
             ClientMessage::SetOption { key, value } => {
+                eprintln!("[API] SetOption command received: {}={}", key, value);
                 state.lock().unwrap().queue_option_change(key, value);
                 let resp = ServerMessage::Flash { message: "Option Updated".into(), duration_ms: 1500 };
                 ws.send(Message::text(serde_json::to_string(&resp)?)).await?;
             }
         }
 
-        Ok(())
+        Ok(false)
     }
 }
