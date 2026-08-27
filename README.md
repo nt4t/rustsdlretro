@@ -232,6 +232,13 @@ cargo build --release --features "minifb,api"
 node test_api.js
 ```
 
+### PNG Frame Streaming Test
+```bash
+node tests/test_png_stream.js                          # defaults to ws://localhost:18932
+node tests/test_png_stream.js --max-frames 5           # stop after N frames
+```
+See `tests/README.md` for known issues with PNG frame delivery.
+
 ## Development
 
 ### Workspace Structure

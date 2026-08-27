@@ -358,7 +358,8 @@ pub fn create_api_state(resolution: Arc<Mutex<ResolutionState>>) -> SharedApiSta
         let addr: SocketAddr = ([0, 0, 0, 0], 18932).into();
 
         eprintln!("[API] Spawning WebSocket server on {}", addr);
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
             .enable_all()
             .build()
             .expect("Failed to build tokio runtime for API server");
@@ -490,12 +491,17 @@ pub mod api_server {
             if let Ok(frame) = rx.recv() {
                 eprintln!("[API][CAP] Frame received in distributor, width={}", frame.width);
                 let mut captures = CLIENT_CAPTURES.lock().unwrap();
+                eprintln!("[API][CAP] Distributor iterating over {} clients", captures.len());
                 for cap in captures.iter_mut() {
                     match cap.mode {
                         CaptureMode::None => {},
                         CaptureMode::Continuous | CaptureMode::SingleStep => {
-                            if let Err(e) = cap.tx.send(frame.clone()) {
+                            eprintln!("[API][CAP] Sending frame to client {} (id={}, mode={:?})", cap.id, cap.id, cap.mode);
+                            let result = cap.tx.send(frame.clone());
+                            if let Err(e) = result {
                                 eprintln!("[API][CAP] Failed to send frame to client: {}", e);
+                            } else {
+                                eprintln!("[API][CAP] Frame SEND OK to client {}", cap.id);
                             }
                         }
                     }
@@ -529,79 +535,33 @@ pub mod api_server {
                     let mut captures = CLIENT_CAPTURES.lock().unwrap();
                     client_id = captures.len();
                     captures.push(ClientCapture { tx: client_tx.clone(), id: client_id, mode: CaptureMode::None });
-                    eprintln!("[API][CLIENT] Client {} registered, total clients={}", client_id, captures.len());
+                    eprintln!("[API][CLIENT] Client {} registered", client_id);
                 }
 
-                // Single message loop that handles both WS messages and frame capture.
-                let mut waiting_for_frame = false;
                 loop {
-                    if waiting_for_frame {
-                        match client_rx.recv().await {
-                            Some(frame) => {
-                                eprintln!("[API][CLIENT] Client received frame, encoding PNG...");
-                                if let Err(e) = send_png_frame(&mut ws, &frame).await {
-                                    eprintln!("[API][CLIENT] Frame SEND ERROR: {}", e);
-                                    break;
-                                }
-                                eprintln!("[API][CLIENT] PNG SENT, resetting capture mode");
-                                // Reset capture mode after sending
-                                {
-                                    let mut captures = CLIENT_CAPTURES.lock().unwrap();
-                                    for cap in captures.iter_mut() {
-                                        if cap.id == client_id { // This client's turn done
-                                            cap.mode = CaptureMode::None;
-                                        }
-                                    }
-                                }
-                                waiting_for_frame = false;
-                            }
-                            None => break,
+                    // Drain any pending frames first
+                    while let Ok(frame) = client_rx.try_recv() {
+                        eprintln!("[API][CLIENT] Client {} got frame (width={}), encoding...", client_id, frame.width);
+                        if let Err(e) = send_png_frame(&mut ws, &frame).await {
+                            eprintln!("[API][CLIENT] Frame SEND ERROR: {}", e);
+                            break;
                         }
-                    } else {
-                        // Check for pending frames first (non-blocking drain)
-                        while client_rx.try_recv().is_ok() {}
-                        // Then wait for WS message
-                        match ws.next().await {
-                            Some(Ok(msg)) => {
-                                if msg.is_text() {
-                                    let want_capture = handle_message(&msg.to_string(), &state, &mut ws).await.unwrap_or(false);
-                                    if want_capture {
-                                        waiting_for_frame = true;
-                                    }
-                                } else if msg.is_close() || msg.is_ping() {
-                                    break;
-                                }
-                            }
-                            Some(Err(e)) => {
-                                eprintln!("[API] Read error: {}", e);
-                                break;
-                            }
-                            None => {
-                                eprintln!("[API] Client disconnected");
-                                break;
-                            }
-                        }
+                        eprintln!("[API][CLIENT] Client {} PNG SENT", client_id);
                     }
+                    // Then wait for WS messages
+                    match ws.next().await {
+                        Some(Ok(msg)) if msg.is_text() => { let _ = handle_message(&msg.to_string(), &state, &mut ws).await; }
+                        Some(Ok(_)) | None => break,
+                        Some(Err(e)) => { eprintln!("[API] Read error: {}", e); break; }
+                    };
                 }
             } else {
                 // No frame channel available, just handle messages
                 loop {
                     match ws.next().await {
-                        Some(Ok(msg)) => {
-                            if msg.is_text() {
-                                let _ = handle_message(&msg.to_string(), &state, &mut ws).await;
-                            } else if msg.is_close() || msg.is_ping() {
-                                break;
-                            }
-                        }
-                        Some(Err(e)) => {
-                            eprintln!("[API] Read error: {}", e);
-                            break;
-                        }
-                        None => {
-                            eprintln!("[API] Client disconnected");
-                            break;
-                        }
+                        Some(Ok(msg)) => { if msg.is_text() { let _ = handle_message(&msg.to_string(), &state, &mut ws).await; } else { break; } }
+                        Some(Err(e)) => { eprintln!("[API] Read error: {}", e); break; }
+                        None => { break; }
                     }
                 }
             }
