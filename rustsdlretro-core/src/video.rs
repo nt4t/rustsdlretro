@@ -64,6 +64,18 @@ pub trait VideoBackend {
 
     /// Check if the backend requests to close (minifb ESC only)
     fn should_close(&self) -> bool;
+
+    /// Set a snapshot callback that receives raw frame data after pixel copy.
+    /// Called from push_frame() before GUI overlay rendering. Returns true if capture succeeded.
+    #[cfg(feature = "api")]
+    fn set_snapshot_callback(
+        &mut self,
+        callback: Option<fn(pixels: *const u8, width: u32, height: u32, core_bpp: u32)>,
+    );
+
+    /// Take a snapshot of the current frame (used by API for PNG streaming).
+    #[cfg(feature = "api")]
+    fn take_snapshot(&mut self) -> Option<FrameSnapshot>;
 }
 
 // ioctl constants for fbdev
@@ -150,6 +162,57 @@ impl CoreFormat {
 
 pub static mut CORE_FORMAT: CoreFormat = CoreFormat::UNINITIALIZED;
 
+// ─── Frame Snapshot (for API PNG streaming) ────────────────────────────────────
+
+/// A captured frame ready for encoding.
+#[cfg(feature = "api")]
+pub struct FrameSnapshot {
+    /// Width in pixels
+    pub width: u32,
+    /// Height in pixels  
+    pub height: u32,
+    /// Pixel data (XRGB8888 or RGB565 depending on core_bpp)
+    pub pixels: Vec<u8>,
+    /// Bits per pixel of the source (16 or 32)
+    pub core_bpp: u32,
+}
+
+#[cfg(feature = "api")]
+impl FrameSnapshot {
+    fn new(width: u32, height: u32, core_bpp: u32) -> Self {
+        let bytes_per_pixel = (core_bpp / 8) as usize;
+        let pitch = width as usize * bytes_per_pixel;
+        Self {
+            width,
+            height,
+            pixels: vec![0u8; pitch * height as usize],
+            core_bpp,
+        }
+    }
+}
+
+/// Callback type for frame snapshots.
+pub type SnapshotCallback = Option<fn(pixels: *const u8, width: u32, height: u32, core_bpp: u32)>;
+
+/// Global snapshot callback (set once by API module).
+#[cfg(feature = "api")]
+static mut SNAPSHOT_CALLBACK: std::cell::Cell<Option<fn(pixels: *const u8, width: u32, height: u32, core_bpp: u32)>> 
+    = std::cell::Cell::new(None);
+
+#[cfg(feature = "api")]
+pub fn set_snapshot_callback(cb: SnapshotCallback) {
+    unsafe { SNAPSHOT_CALLBACK.set(cb); }
+}
+
+#[cfg(feature = "api")]
+pub fn call_snapshot_callback(pixels: *const u8, width: u32, height: u32, core_bpp: u32) {
+    unsafe {
+        if let Some(cb) = SNAPSHOT_CALLBACK.get() {
+            cb(pixels, width, height, core_bpp);
+        }
+    }
+}
+
 #[inline]
 fn xrgb8888_to_rgb565(p: u32) -> u16 {
     let r = (p >> 16) & 0xFF;
@@ -180,6 +243,9 @@ pub struct FbdevVideo {
     offset_y: i32,
     skip_frame: bool,
     frame_drawn: bool,
+    /// Buffer for snapshot capture (API PNG streaming)
+    #[cfg(feature = "api")]
+    snapshot_buffer: Option<Vec<u8>>,
 }
 
 impl FbdevVideo {
@@ -234,6 +300,8 @@ impl FbdevVideo {
             offset_y: 0,
             skip_frame: false,
             frame_drawn: false,
+            #[cfg(feature = "api")]
+            snapshot_buffer: None,
         })
     }
 
@@ -327,6 +395,55 @@ impl FbdevVideo {
                     ptr::copy_nonoverlapping(dst_buf.as_ptr(), dest_row, frame_w);
                 }
             }
+        }
+
+        // Push captured frame for API PNG streaming (non-blocking)
+        #[cfg(feature = "api")]
+        {
+            use crate::api;
+            let mut snapshot = api::CapturedFrame::new(frame_w as u32, frame_h as u32);
+            if core_bpp == 32 {
+                // XRGB8888 -> RGBA conversion
+                for y in 0..frame_h {
+                    let src_row = unsafe { (pixels as *const u32).add((y as usize) * (pitch / 4)) };
+                    let dst_offset = y as usize * frame_w as usize * 4;
+                    let dst = &mut snapshot.pixels[dst_offset..dst_offset + frame_w as usize * 4];
+                    for x in 0..frame_w {
+                        let pixel = unsafe { *src_row.add(x) };
+                        // XRGB8888 -> RGBA: add alpha=255
+                        dst[x * 4]     = (pixel >> 16) as u8; // R
+                        dst[x * 4 + 1] = (pixel >> 8) as u8;  // G
+                        dst[x * 4 + 2] = pixel as u8;          // B
+                        dst[x * 4 + 3] = 0xFF;                 // A
+                    }
+                }
+            } else {
+                // RGB565 -> RGBA conversion with lookup table
+                let mut rgb565_lut: [u32; 65536] = core::array::from_fn(|_| 0);
+                for i in 0u16..=65535u16 {
+                    let r5 = (i >> 11) & 0x1F;
+                    let g6 = (i >> 5) & 0x3F;
+                    let b5 = i & 0x1F;
+                    let r = ((r5 << 3) | (r5 >> 2)) as u8;
+                    let g = ((g6 << 2) | (g6 >> 4)) as u8;
+                    let b = ((b5 << 3) | (b5 >> 2)) as u8;
+                    rgb565_lut[i as usize] = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                }
+                for y in 0..frame_h {
+                    let src_row = unsafe { (pixels as *const u16).add((y as usize) * (pitch / 2)) };
+                    let dst_offset = y as usize * frame_w as usize * 4;
+                    let dst = &mut snapshot.pixels[dst_offset..dst_offset + frame_w as usize * 4];
+                    for x in 0..frame_w {
+                        let pixel = unsafe { *src_row.add(x) };
+                        let rgba = rgb565_lut[pixel as usize];
+                        dst[x * 4]     = (rgba >> 16) as u8; // R
+                        dst[x * 4 + 1] = (rgba >> 8) as u8;  // G
+                        dst[x * 4 + 2] = rgba as u8;          // B
+                        dst[x * 4 + 3] = 0xFF;                // A
+                    }
+                }
+            }
+            api::push_captured_frame(snapshot);
         }
     }
 
@@ -533,6 +650,14 @@ impl FbdevVideo {
     pub fn fb_bpp(&self) -> u32 {
         self.fb_bpp
     }
+
+    /// Set the snapshot callback for this backend.
+    #[cfg(feature = "api")]
+    pub fn set_snapshot_callback(&mut self, width: u32, height: u32) {
+        let bytes_per_pixel = 4; // Always capture as XRGB8888
+        let pitch = (width * bytes_per_pixel) as usize;
+        self.snapshot_buffer = Some(vec![0u8; pitch * height as usize]);
+    }
 }
 
 impl Drop for FbdevVideo {
@@ -627,5 +752,22 @@ impl VideoBackend for FbdevVideo {
 
     fn should_close(&self) -> bool {
         false
+    }
+
+    #[cfg(feature = "api")]
+    fn set_snapshot_callback(
+        &mut self,
+        _callback: Option<fn(pixels: *const u8, width: u32, height: u32, core_bpp: u32)>,
+    ) {
+        // Callback is stored globally via call_snapshot_callback in push_frame
+        // This method is for API initialization to set up snapshot buffer size
+        let format = unsafe { CORE_FORMAT };
+        self.set_snapshot_callback(format.width, format.height);
+    }
+
+    #[cfg(feature = "api")]
+    fn take_snapshot(&mut self) -> Option<FrameSnapshot> {
+        // Not implemented for fbdev - snapshot captured via callback during push_frame
+        None
     }
 }

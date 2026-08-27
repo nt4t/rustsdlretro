@@ -3,6 +3,7 @@
 //! Provides thread-safe shared state that bridges the WebSocket server
 //! and the main emulation loop. All state is behind `#[cfg(feature = "api")]`.
 
+use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 use crate::ResolutionState;
 
@@ -141,6 +142,25 @@ pub enum ServerMessage {
 /// Thread-safe shared state between the WebSocket server and main emulation loop.
 pub type SharedApiState = Arc<Mutex<ApiState>>;
 
+/// A captured frame ready for encoding (RGBA pixels).
+#[derive(Clone)]
+pub struct CapturedFrame {
+    /// Width in pixels
+    pub width: u32,
+    /// Height in pixels  
+    pub height: u32,
+    /// RGBA pixel data (4 bytes per pixel)
+    pub pixels: Vec<u8>,
+}
+
+impl CapturedFrame {
+    /// Create a new empty frame buffer with the given dimensions.
+    pub fn new(width: u32, height: u32) -> Self {
+        let size = (width * height * 4) as usize;
+        Self { width, height, pixels: vec![0u8; size] }
+    }
+}
+
 /// Inner state that can be shared across threads via Mutex<Arc>.
 #[derive(Default)]
 pub struct ApiState {
@@ -165,6 +185,11 @@ pub struct ApiState {
     width: u32,
     /// Latest known resolution height.
     height: u32,
+
+    // ── Frame Streaming State ────────────────────────────────────────────
+    /// Channel sender for frame snapshots (main thread → server).
+    #[cfg(all(feature = "tokio", feature = "tungstenite"))]
+    pub frame_tx: Option<crossbeam_channel::Sender<CapturedFrame>>,
 }
 
 impl ApiState {
@@ -291,12 +316,39 @@ impl ApiState {
     pub fn get_input_snapshot(&self, port: u32) -> &InputSnapshot {
         self.inputs.get(port)
     }
+
+    // ── Frame Streaming ─────────────────────────────────────────────────────
+
+    /// Push a captured frame into the streaming channel.
+    #[cfg(all(feature = "tokio", feature = "tungstenite"))]
+    pub fn push_frame(&self, frame: CapturedFrame) {
+        if let Some(ref tx) = self.frame_tx {
+            // Non-blocking send — drop frames if client is slow (prevents blocking emulation)
+            let _ = tx.try_send(frame);
+        }
+    }
+
+    /// Get the frame channel sender for video backends to push snapshots.
+    #[cfg(all(feature = "tokio", feature = "tungstenite"))]
+    pub fn get_frame_tx(&self) -> Option<crossbeam_channel::Sender<CapturedFrame>> {
+        self.frame_tx.clone()
+    }
 }
 
 /// Create a new API state and spawn the WebSocket server on a background thread.
 pub fn create_api_state(resolution: Arc<Mutex<ResolutionState>>) -> SharedApiState {
     let mut inner = ApiState::new();
     inner.set_resolution_source(Arc::clone(&resolution));
+    
+    // Create frame streaming channel (bounded to prevent memory issues)
+    #[cfg(all(feature = "tokio", feature = "tungstenite"))]
+    {
+        let (frame_tx, frame_rx) = crossbeam_channel::bounded::<CapturedFrame>(4);
+        inner.frame_tx = Some(frame_tx);
+        // Store receiver for server to read from
+        *FRAME_RX.lock().unwrap() = Some(frame_rx);
+    }
+
     let inner = Arc::new(Mutex::new(inner));
 
     // Spawn the server thread (requires both tokio and tungstenite)
@@ -330,13 +382,47 @@ pub fn create_api_state(resolution: Arc<Mutex<ResolutionState>>) -> SharedApiSta
     inner
 }
 
+/// Global frame sender for video backends to push snapshots.
+#[cfg(all(feature = "tokio", feature = "tungstenite"))]
+pub static FRAME_TX: std::sync::Mutex<Option<crossbeam_channel::Sender<CapturedFrame>>> = 
+    std::sync::Mutex::new(None);
+
+/// Global frame receiver for the server to distribute to clients.
+#[cfg(all(feature = "tokio", feature = "tungstenite"))]
+pub static FRAME_RX: std::sync::Mutex<Option<crossbeam_channel::Receiver<CapturedFrame>>> = 
+    std::sync::Mutex::new(None);
+
+/// Initialize the global frame channel for streaming. Called once from main.rs after API state creation.
+#[cfg(all(feature = "tokio", feature = "tungstenite"))]
+pub fn init_frame_streaming(api_state: &SharedApiState) {
+    if let Some(tx) = api_state.lock().unwrap().get_frame_tx() {
+        *FRAME_TX.lock().unwrap() = Some(tx);
+        // Also store the receiver (which is stored in ApiState.frame_rx internally)
+        eprintln!("[API] Frame streaming channel initialized");
+    }
+}
+
+/// Push a captured frame into the streaming channel. Called from video backends.
+#[cfg(all(feature = "tokio", feature = "tungstenite"))]
+pub fn push_captured_frame(frame: CapturedFrame) {
+    if let Some(ref tx) = *FRAME_TX.lock().unwrap() {
+        // Non-blocking send — drop frames if channel is full (prevents blocking emulation)
+        let _ = tx.try_send(frame);
+    }
+}
+
 // ─── WebSocket Server (requires tokio + tungstenite) ──────────────────────────
 
 #[cfg(all(feature = "tokio", feature = "tungstenite"))]
 pub mod api_server {
-    use super::{ApiState, ClientMessage, ServerMessage};
+    use super::{ApiState, CapturedFrame, ClientMessage, ServerMessage};
     use std::net::SocketAddr;
     use std::sync::{Arc, Mutex};
+
+    /// Shared list of per-client frame channels (module-level static).
+    #[cfg(feature = "png")]
+    static CLIENTS: std::sync::Mutex<Vec<tokio::sync::mpsc::UnboundedSender<CapturedFrame>>> 
+        = std::sync::Mutex::new(Vec::new());
 
     /// Run the WebSocket server on the given address.
     pub async fn run(
@@ -347,6 +433,15 @@ pub mod api_server {
 
         let listener = TcpListener::bind(addr).await?;
         eprintln!("[API] WebSocket server listening on ws://{}", addr);
+
+        // Spawn frame distributor task: reads from global channel, distributes to clients
+        #[cfg(feature = "png")]
+        {
+            use super::FRAME_RX;
+            if let Some(rx) = *FRAME_RX.lock().unwrap() {
+                tokio::spawn(frame_distributor_task(rx));
+            }
+        }
 
         loop {
             let (stream, peer) = listener.accept().await?;
@@ -364,6 +459,24 @@ pub mod api_server {
         }
     }
 
+    /// Frame distributor task: reads from global channel and broadcasts to clients.
+    #[cfg(feature = "png")]
+    async fn frame_distributor_task(rx: crossbeam_channel::Receiver<CapturedFrame>) {
+        loop {
+            // Read next frame (blocking)
+            if let Ok(frame) = rx.recv() {
+                // Broadcast to all connected clients
+                let mut clients = CLIENTS.lock().unwrap();
+                for client_tx in clients.iter_mut() {
+                    let _ = client_tx.send_unbounded(frame.clone());
+                }
+                // Prune disconnected clients (channels that are closed)
+                clients.retain(|tx| !tx.is_closed());
+            }
+        }
+    }
+
+    /// Handle a single WebSocket client connection.
     async fn handle_client(
         stream: tokio::net::TcpStream,
         state: Arc<Mutex<ApiState>>,
@@ -374,28 +487,156 @@ pub mod api_server {
         // Use async-tungstenite tokio module to accept the WebSocket handshake on a Tokio stream
         let mut ws = async_tungstenite::tokio::accept_async(stream).await?;
 
-        loop {
-            match ws.next().await {
-                Some(Ok(msg)) => {
-                    if msg.is_text() {
-                        if let Err(e) = handle_message(&msg.to_string(), &state, &mut ws).await {
-                            eprintln!("[API] Message error: {}", e);
+        #[cfg(feature = "png")]
+        {
+            use super::FRAME_RX;
+            
+            // Subscribe this client to frame distribution
+            if let Some(ref _rx) = *FRAME_RX.lock().unwrap() {
+                // Per-client channel for frame delivery
+                let (client_tx, mut client_rx) = tokio::sync::mpsc::unbounded_channel::<CapturedFrame>();
+                
+                // Register client in global list
+                {
+                    let mut clients = CLIENTS.lock().unwrap();
+                    clients.push(client_tx);
+                }
+
+                // Frame sender task (runs alongside message handling)
+                let frame_sender = tokio::spawn(async move {
+                    use std::time::Duration;
+                    
+                    // Rate limit: ~30fps max for PNG streaming
+                    let mut last_send = std::time::Instant::now();
+                    let min_frame_interval = Duration::from_millis(33); // ~30fps
+
+                    loop {
+                        match client_rx.recv().await {
+                            Some(frame) => {
+                                // Rate limit: skip if too soon since last send
+                                if last_send.elapsed() < min_frame_interval {
+                                    continue; // Drop frame to maintain target FPS
+                                }
+                                
+                                if let Err(e) = send_png_frame(&mut ws, &frame).await {
+                                    eprintln!("[API] Frame send error: {}", e);
+                                    break;
+                                }
+                                last_send = std::time::Instant::now();
+                            }
+                            None => break, // Channel closed
                         }
-                    } else if msg.is_close() || msg.is_ping() {
-                        break;
                     }
+                });
+
+                // Main message handling loop (runs in parallel with frame sending)
+                let msg_loop = async {
+                    loop {
+                        match ws.next().await {
+                            Some(Ok(msg)) => {
+                                if msg.is_text() {
+                                    if let Err(e) = handle_message(&msg.to_string(), &state, &mut ws).await {
+                                        eprintln!("[API] Message error: {}", e);
+                                    }
+                                } else if msg.is_close() || msg.is_ping() {
+                                    break;
+                                }
+                            }
+                            Some(Err(e)) => {
+                                eprintln!("[API] Read error: {}", e);
+                                break;
+                            }
+                            None => {
+                                eprintln!("[API] Client disconnected");
+                                break;
+                            }
+                        }
+                    }
+                };
+
+                // Run both tasks - cancel frame sender when client disconnects
+                tokio::select! {
+                    _ = msg_loop => {},
+                    _ = frame_sender => {},
                 }
-                Some(Err(e)) => {
-                    eprintln!("[API] Read error: {}", e);
-                    break;
-                }
-                None => {
-                    eprintln!("[API] Client disconnected");
-                    break;
+            } else {
+                // No frame channel available, just handle messages
+                loop {
+                    match ws.next().await {
+                        Some(Ok(msg)) => {
+                            if msg.is_text() {
+                                if let Err(e) = handle_message(&msg.to_string(), &state, &mut ws).await {
+                                    eprintln!("[API] Message error: {}", e);
+                                }
+                            } else if msg.is_close() || msg.is_ping() {
+                                break;
+                            }
+                        }
+                        Some(Err(e)) => {
+                            eprintln!("[API] Read error: {}", e);
+                            break;
+                        }
+                        None => {
+                            eprintln!("[API] Client disconnected");
+                            break;
+                        }
+                    }
                 }
             }
         }
 
+        #[cfg(not(feature = "png"))]
+        {
+            loop {
+                match ws.next().await {
+                    Some(Ok(msg)) => {
+                        if msg.is_text() {
+                            if let Err(e) = handle_message(&msg.to_string(), &state, &mut ws).await {
+                                eprintln!("[API] Message error: {}", e);
+                            }
+                        } else if msg.is_close() || msg.is_ping() {
+                            break;
+                        }
+                    }
+                    Some(Err(e)) => {
+                        eprintln!("[API] Read error: {}", e);
+                        break;
+                    }
+                    None => {
+                        eprintln!("[API] Client disconnected");
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Encode a captured frame as PNG and send it over WebSocket.
+    #[cfg(feature = "png")]
+    async fn send_png_frame(
+        ws: &mut async_tungstenite::WebSocketStream<async_tungstenite::tokio::TokioAdapter<tokio::net::TcpStream>>,
+        frame: &CapturedFrame,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use tungstenite::Message;
+
+        // Encode RGBA → PNG using the png crate
+        let mut encoder = png::Encoder::new(Vec::new(), frame.width as u32, frame.height as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&frame.pixels).unwrap();
+        let png_data = writer.finish().unwrap();
+
+        // Build binary message: [width u16 BE][height u16 BE][PNG bytes]
+        let header = [(frame.width >> 8) as u8, (frame.width & 0xFF) as u8,
+                       (frame.height >> 8) as u8, (frame.height & 0xFF) as u8];
+        let mut binary = Vec::with_capacity(4 + png_data.len());
+        binary.extend_from_slice(&header);
+        binary.extend_from_slice(&png_data);
+
+        ws.send(Message::Binary(binary)).await?;
         Ok(())
     }
 

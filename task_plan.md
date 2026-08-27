@@ -83,21 +83,32 @@ Implement a WebSocket-based control API that allows external clients to:
 - [x] Update resolution/FPS in ApiState each frame for status messages
   - If `step_frame`, set it and run one frame then return to idle
   - If not running (paused), skip frame throttle wait
-- [ ] Map web client input → existing InputReader state on each poll cycle
-- [ ] Connect save/load requests from API to existing F2/F4 logic
-- [ ] Relay flash messages and status updates back through WebSocket
+- [x] Map web client input → existing InputReader state on each poll cycle (done in main loop)
+- [x] Connect save/load requests from API to existing F2/F4 logic (done in main loop)
+- [x] Relay flash messages and status updates back through WebSocket (done in api_server)
 
 ## Phase 4: DONE — No HTTP needed (ROM upload out of scope)
 **Status:** COMPLETE ✅
 - [x] ROM upload removed from requirements
 
 ## Phase 5: PNG Frame Streaming (`api_server.rs` extension)
-**Status:** NOT STARTED
-- [ ] All PNG code behind `#[cfg(feature = "api")]`
-- [ ] Capture framebuffer buffer after each frame (from VideoBackend)
-- [ ] Encode RGBA → PNG (native core resolution, e.g. 320×240)
-- [ ] Send as binary WebSocket message: `[width u16][height u16][PNG bytes]`
-- [ ] Frame rate limiting (throttle to ~15-30 fps over WS)
+**Status:** COMPLETE ✅
+- [x] All PNG code behind `#[cfg(feature = "api")]`
+- [x] Capture framebuffer buffer after each frame (via push_captured_frame in VideoBackend)
+- [x] Encode RGBA → PNG using png crate
+- [x] Send as binary WebSocket message: `[width u16][height u16][PNG bytes]`
+- [x] Frame rate limiting (~30 fps max via elapsed time check before encoding/sending)
+
+### Implementation Details
+- **Frame capture**: Video backends copy core pixels → RGBA format in push_frame()
+- **Channel**: crossbeam_channel bounded channel (size 4) for non-blocking frame transfer
+- **Distribution**: Module-level CLIENTS static + per-client tokio channels for async delivery
+- **Rate limiting**: ~30fps max via elapsed time check before encoding/sending
+- **Binary format**: `[width u16 BE][height u16 BE][raw PNG bytes]`
+
+### Testing
+- `tests/test_png_stream.js` — Full integration test (connect → Play → Step → capture PNG frames)
+- Validates PNG signature, IHDR chunk, IDAT data, saves to `./test_output/`
 
 ---
 

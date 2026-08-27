@@ -243,7 +243,12 @@ fn main() {
     let api_state: Option<SharedApiState> = {
         if args.iter().any(|a| a == "--api-port") {
             eprintln!("[API] Creating API state on port {}", api_port);
-            Some(api_mod::create_api_state(Arc::clone(&res_state)))
+            let state = Some(api_mod::create_api_state(Arc::clone(&res_state)));
+            // Initialize frame streaming channel for video backends
+            if let Some(ref s) = state {
+                api_mod::init_frame_streaming(s);
+            }
+            state
         } else {
             None
         }

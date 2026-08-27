@@ -2,7 +2,7 @@
 /// Provides the same VideoBackend interface as FbdevVideo but renders to an X11 window.
 
 use crate::font;
-use crate::video::VideoBackend;
+use crate::video::{self, FrameSnapshot, VideoBackend};
 use minifb::{Scale, ScaleMode, Window, WindowOptions};
 use std::ffi::c_void;
 
@@ -39,6 +39,9 @@ pub struct MinifbVideo {
     offset_y: i32,
     skip_frame: bool,
     frame_drawn: bool,
+    /// Buffer for snapshot capture (API PNG streaming)
+    #[cfg(feature = "api")]
+    snapshot_buffer: Option<Vec<u8>>,
 }
 
 impl MinifbVideo {
@@ -90,6 +93,8 @@ impl MinifbVideo {
             offset_y: 0,
             skip_frame: false,
             frame_drawn: false,
+            #[cfg(feature = "api")]
+            snapshot_buffer: None,
         })
     }
 
@@ -215,6 +220,55 @@ impl MinifbVideo {
                     }
                 }
             }
+        }
+
+        // Push captured frame for API PNG streaming (non-blocking)
+        #[cfg(feature = "api")]
+        {
+            use crate::api;
+            let mut snapshot = api::CapturedFrame::new(frame_w as u32, frame_h as u32);
+            if core_bpp == 32 {
+                // XRGB8888 -> RGBA conversion
+                for y in 0..frame_h {
+                    let src_row = unsafe { (pixels as *const u32).add((y as usize) * (pitch / 4)) };
+                    let dst_offset = y as usize * frame_w as usize * 4;
+                    let dst = &mut snapshot.pixels[dst_offset..dst_offset + frame_w as usize * 4];
+                    for x in 0..frame_w {
+                        let pixel = unsafe { *src_row.add(x) };
+                        // XRGB8888 -> RGBA: add alpha=255
+                        dst[x * 4]     = (pixel >> 16) as u8; // R
+                        dst[x * 4 + 1] = (pixel >> 8) as u8;  // G
+                        dst[x * 4 + 2] = pixel as u8;          // B
+                        dst[x * 4 + 3] = 0xFF;                 // A
+                    }
+                }
+            } else {
+                // RGB565 -> RGBA conversion with lookup table
+                let mut rgb565_lut: [u32; 65536] = core::array::from_fn(|_| 0);
+                for i in 0u16..=65535u16 {
+                    let r5 = (i >> 11) & 0x1F;
+                    let g6 = (i >> 5) & 0x3F;
+                    let b5 = i & 0x1F;
+                    let r = ((r5 << 3) | (r5 >> 2)) as u8;
+                    let g = ((g6 << 2) | (g6 >> 4)) as u8;
+                    let b = ((b5 << 3) | (b5 >> 2)) as u8;
+                    rgb565_lut[i as usize] = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+                }
+                for y in 0..frame_h {
+                    let src_row = unsafe { (pixels as *const u16).add((y as usize) * (pitch / 2)) };
+                    let dst_offset = y as usize * frame_w as usize * 4;
+                    let dst = &mut snapshot.pixels[dst_offset..dst_offset + frame_w as usize * 4];
+                    for x in 0..frame_w {
+                        let pixel = unsafe { *src_row.add(x) };
+                        let rgba = rgb565_lut[pixel as usize];
+                        dst[x * 4]     = (rgba >> 16) as u8; // R
+                        dst[x * 4 + 1] = (rgba >> 8) as u8;  // G
+                        dst[x * 4 + 2] = rgba as u8;          // B
+                        dst[x * 4 + 3] = 0xFF;                // A
+                    }
+                }
+            }
+            api::push_captured_frame(snapshot);
         }
     }
 
@@ -373,6 +427,57 @@ impl MinifbVideo {
     pub fn fb_bpp(&self) -> u32 {
         32
     }
+
+    /// Set up snapshot buffer with core resolution size.
+    #[cfg(feature = "api")]
+    pub fn set_snapshot_callback(&mut self, width: u32, height: u32) {
+        // Minifb stores ARGB8888 pixels. For PNG we want RGBA (standard).
+        // Allocate buffer for core resolution in RGBA format.
+        let bytes_per_pixel = 4;
+        let pitch = (width * bytes_per_pixel) as usize;
+        self.snapshot_buffer = Some(vec![0u8; pitch * height as usize]);
+    }
+
+    /// Take a snapshot of the current frame from the display buffer.
+    #[cfg(feature = "api")]
+    pub fn take_snapshot(&mut self) -> Option<FrameSnapshot> {
+        let buf = self.snapshot_buffer.as_mut()?;
+        if buf.is_empty() || self.core_width == 0 || self.core_height == 0 {
+            return None;
+        }
+
+        // Copy the centered game area from display buffer to snapshot buffer.
+        // Convert ARGB8888 (minifb format) -> RGBA for PNG encoding.
+        let core_w = self.core_width as usize;
+        let core_h = self.core_height as usize;
+        let offset_x = self.offset_x.max(0) as usize;
+        let offset_y = self.offset_y.max(0) as usize;
+
+        let display_pitch = self.width as usize;
+
+        for y in 0..core_h {
+            let src_row = (offset_y + y) * display_pitch + offset_x;
+            let dst_row = y * core_w;
+            let dst = &mut buf[dst_row * 4..(dst_row + core_w) * 4];
+            for x in 0..core_w {
+                let pixel = self.buffer[src_row + x];
+                // Minifb uses ARGB8888 (0xAARRGGBB). On little-endian:
+                // Bytes in memory: BB GG RR AA
+                // We want RGBA: R G B A
+                dst[x * 4]     = (pixel >> 16) as u8; // R
+                dst[x * 4 + 1] = (pixel >> 8) as u8;  // G
+                dst[x * 4 + 2] = pixel as u8;          // B
+                dst[x * 4 + 3] = 0xFF;                 // A (opaque)
+            }
+        }
+
+        Some(FrameSnapshot {
+            width: self.core_width,
+            height: self.core_height,
+            pixels: buf.clone(),
+            core_bpp: 32,
+        })
+    }
 }
 
 impl VideoBackend for MinifbVideo {
@@ -450,5 +555,20 @@ impl VideoBackend for MinifbVideo {
 
     fn should_close(&self) -> bool {
         MinifbVideo::should_close(self)
+    }
+
+    #[cfg(feature = "api")]
+    fn set_snapshot_callback(
+        &mut self,
+        _callback: Option<fn(pixels: *const u8, width: u32, height: u32, core_bpp: u32)>,
+    ) {
+        // Initialize snapshot buffer with current core resolution
+        let format = unsafe { crate::video::CORE_FORMAT };
+        self.set_snapshot_callback(format.width, format.height);
+    }
+
+    #[cfg(feature = "api")]
+    fn take_snapshot(&mut self) -> Option<FrameSnapshot> {
+        MinifbVideo::take_snapshot(self)
     }
 }

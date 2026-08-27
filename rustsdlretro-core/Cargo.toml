@@ -12,7 +12,7 @@ null-audio = []
 tokio = ["dep:tokio"]
 tungstenite = ["dep:tungstenite"]
 png = ["dep:png"]
-api = ["tungstenite", "tokio", "async-tungstenite", "futures-util", "dep:png", "dep:serde", "dep:serde_json"]
+api = ["tungstenite", "tokio", "async-tungstenite", "futures-util", "dep:png", "dep:serde", "dep:serde_json", "dep:crossbeam-channel"]
 
 [dependencies]
 libc = "0.2"
@@ -27,6 +27,7 @@ png = { version = "0.17", optional = true }
 tokio = { version = "1", features = ["full"], optional = true }
 async-tungstenite = { version = "0.35", features = ["tokio-rustls-webpki-roots"], optional = true }
 futures-util = { version = "0.3", optional = true }
+crossbeam-channel = { version = "0.5", optional = true }
 
 [build-dependencies]
 bindgen = "0.71"
